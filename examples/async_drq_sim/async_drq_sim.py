@@ -44,7 +44,7 @@ flags.DEFINE_string("exp_name", None, "Name of the experiment for wandb logging.
 flags.DEFINE_integer("max_traj_length", 1000, "Maximum length of trajectory.")
 flags.DEFINE_integer("seed", 42, "Random seed.")
 flags.DEFINE_bool("save_model", False, "Whether to save model.")
-flags.DEFINE_integer("batch_size", 256, "Batch size.")
+flags.DEFINE_integer("batch_size", 128, "Batch size.")
 flags.DEFINE_integer("critic_actor_ratio", 4, "critic to actor update ratio.")
 
 flags.DEFINE_integer("max_steps", 1000000, "Maximum number of training steps.")
@@ -104,6 +104,8 @@ def actor(agent: DrQAgent, data_store, env, sampling_rng):
     def update_params(params):
         nonlocal agent
         agent = agent.replace(state=agent.state.replace(params=params))
+        print_green("updated agent params")
+
 
     client.recv_network_callback(update_params)
 
@@ -296,6 +298,9 @@ def learner(
             agent = jax.block_until_ready(agent)
             server.publish_network(agent.state.params)
 
+            print_green("sent updated network to actor")
+
+
         if update_steps % FLAGS.log_period == 0 and wandb_logger:
             wandb_logger.log(update_info, step=update_steps)
             wandb_logger.log({"timer": timer.get_average_times()}, step=update_steps)
@@ -345,7 +350,7 @@ def main(_):
     # replicate agent across devices
     # need the jnp.array to avoid a bug where device_put doesn't recognize primitives
     agent: DrQAgent = jax.device_put(
-        jax.tree_map(jnp.array, agent), sharding.replicate()
+        jax.tree.map(jnp.array, agent), sharding.replicate()
     )
 
     if FLAGS.learner:
