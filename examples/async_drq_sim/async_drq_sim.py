@@ -81,9 +81,8 @@ flags.DEFINE_boolean(
     "save_video", False, "Save video of training"
 )
 flags.DEFINE_integer(
-    "video_period", 3000, "Period to save video of training"
+    "video_period", 10000, "Period to save video of training"
 )
-
 
 flags.DEFINE_boolean(
     "debug", False, "Debug mode."
@@ -239,7 +238,7 @@ def actor(agent: DrQAgent, data_store, env, sampling_rng, video_dir=None):
                         if f.endswith(".mp4")
                     ]
                     video_paths = sorted(video_paths, key=os.path.getctime)
-                    video_paths = video_paths[-FLAGS.eval_n_trajs:]
+                    video_paths = video_paths[-1]
                     client.request("send-stats", {"video_paths": video_paths})
                     print_green("Closed and sent video data")
                     recording = False
@@ -258,65 +257,6 @@ def actor(agent: DrQAgent, data_store, env, sampling_rng, video_dir=None):
             success_counter = 0
             running_return = 0.0
             num_episodes = 0
-
-
-
-        # CURRENTLY BUGGING CAUSE DESTROYS THE MAIN ENV
-        if (False):
-            if FLAGS.eval_period and step % FLAGS.eval_period == 0 and step > 0:
-
-                print_green("Evaluating...")
-
-                client.request("pause-training", {"pause": True})
-
-                eval_env = gym.make(FLAGS.env, render_mode="rgb_array")
-                if FLAGS.env == "PandaPickCubeVision-v0":
-                    eval_env = SERLObsWrapper(eval_env)
-                    eval_env = ChunkingWrapper(eval_env, obs_horizon=1, act_exec_horizon=None)
-                eval_env = RecordEpisodeStatistics(eval_env)
-
-                if FLAGS.save_video:
-                    video_dir = os.path.join(
-                        os.path.dirname(os.path.abspath(__file__)),
-                        "videos",
-                        FLAGS.exp_name or FLAGS.env,
-                    )
-                    print_green(f"Logging videos to {video_dir}")
-                    eval_env = RecordVideo(
-                        eval_env,
-                        video_dir,
-                        episode_trigger=lambda x: x % 1 == 0,
-                        name_prefix="video-eval",
-                    )
-
-                with timer.context("eval"):
-                    eval_agent = agent.replace(state=agent.state.replace(params=agent.state.params))
-                    evaluate_info = evaluate(
-                        policy_fn=partial(eval_agent.sample_actions, argmax=True),
-                        env=eval_env,
-                        num_episodes=FLAGS.eval_n_trajs,
-                        save_video=FLAGS.save_video,
-                    )
-                    eval_env.close()
-
-                stats = {"eval": evaluate_info}
-                print_green(f"Eval: {evaluate_info}")
-
-                client.request("send-stats", stats)
-
-                # wandb save video
-                if FLAGS.save_video:
-                    video_caption = f"step_{step}"
-                    video_paths = [
-                        os.path.join(video_dir, f)
-                        for f in os.listdir(video_dir)
-                        if f.endswith(".mp4")
-                    ]
-                    video_paths = sorted(video_paths, key=os.path.getctime)
-                    video_paths = video_paths[-FLAGS.eval_n_trajs:]
-                    client.request("send-stats", {"video_paths": video_paths})
-
-                client.request("pause-training", {"pause": False})
 
         timer.tock("total")
 
@@ -360,6 +300,7 @@ def learner(
                 print_green("Resuming training...")
                 PAUSE_TRAINING.clear()
             return {}
+        
         
         if wandb_logger is not None:
             if "video_paths" in payload:
@@ -513,13 +454,15 @@ def main(_):
         FLAGS.exp_name or FLAGS.env,
         f"{timestamp}",
     )
-    if FLAGS.save_video:
 
+
+    if FLAGS.save_video:
+        assert not FLAGS.render, "Cannot save video when render is True"
         print_green(f"Logging videos to {video_dir}")
         env = RecordVideo(
             env,
             video_dir,
-            episode_trigger=lambda x: x % 1 == 0,
+            episode_trigger=lambda x: x % FLAGS.video_period == 0,
             name_prefix="video",
         )
                      

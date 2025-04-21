@@ -7,7 +7,7 @@ python async_drq_sim.py "$@" \
     --save_video \
     --training_starts 1000 \
     --checkpoint_period 5000 \
+    --batch_size 512 \
     --critic_actor_ratio 4 \
     --encoder_type resnet-pretrained \
     --demo_path franka_lift_cube_image_20_trajs.pkl \
-    --debug \

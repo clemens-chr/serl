@@ -1,5 +1,7 @@
 from pathlib import Path
 from typing import Any, Literal, Tuple, Dict
+import cv2
+from datetime import datetime
 
 import gym
 import mujoco
@@ -36,6 +38,7 @@ class PandaPickCubeGymEnv(MujocoGymEnv):
         render_spec: GymRenderingSpec = GymRenderingSpec(),
         render_mode: Literal["rgb_array", "human"] = "rgb_array",
         image_obs: bool = False,
+        video_dir: str = "./videos",
         save_video=False,
         reward_type: str = "sparse",
     ):
@@ -141,9 +144,10 @@ class PandaPickCubeGymEnv(MujocoGymEnv):
         )
 
         if save_video:
-            print("Saving videos!")
+            print("Saving video to:", video_dir)
         self.save_video = save_video
         self.recording_frames = []
+        self.is_recording = False #To choose which episodes should be recorded
 
 
         # NOTE: gymnasium is used here since MujocoRenderer is not available in gym. It
@@ -160,6 +164,12 @@ class PandaPickCubeGymEnv(MujocoGymEnv):
         self, seed=None, **kwargs
     ) -> Tuple[Dict[str, np.ndarray], Dict[str, Any]]:
         """Reset the environment."""
+
+        ###########################################
+        if self.save_video and self.recording_frames:
+            self.save_video_recording()
+        ############################################
+
         mujoco.mj_resetData(self._model, self._data)
 
 
@@ -289,6 +299,10 @@ class PandaPickCubeGymEnv(MujocoGymEnv):
 
         if self.render_mode == "human":
             self._viewer.render(self.render_mode)
+        
+        if self.save_video and self.is_recording:
+            for frame in obs["images"].values():
+                self.recording_frames.append(frame)
 
         return obs
 
@@ -306,6 +320,21 @@ class PandaPickCubeGymEnv(MujocoGymEnv):
             block_pos = self._data.sensor("block_pos").data
             lift = block_pos[2] - self._z_init
             return float(lift > 0.2)
+    
+    def save_video_recording(self):
+        try:
+            video_writer = cv2.VideoWriter(
+                str(Path(self.video_dir) / f"video_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"),
+                cv2.VideoWriter_fourcc(*"mp4v"),
+                10,
+                self.recording_frames[0].shape[:2][::-1],
+            )
+            for frame in self.recording_frames:
+                video_writer.write(frame)
+            video_writer.release()
+            self.recording_frames.clear()
+        except Exception as e:
+            print(f"Failed to save video: {e}")
 
 
 if __name__ == "__main__":
