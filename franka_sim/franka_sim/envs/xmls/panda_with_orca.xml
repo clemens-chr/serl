@@ -1,0 +1,372 @@
+<mujoco model="panda">
+  <compiler angle="radian" autolimits="true"/>
+
+  <default>
+    <default class="panda">
+      <joint armature="0.1" damping="1" axis="0 0 1" range="-2.8973 2.8973"/>
+      <default class="panda/visual">
+        <geom type="mesh" contype="0" conaffinity="0" group="2"/>
+      </default>
+      <default class="panda/collision">
+        <geom type="mesh" group="3"/>
+      </default>
+      <site size="0.001" rgba="0.5 0.5 0.5 0.3" group="4"/>
+    </default>
+    
+    <default class="orca">
+        <geom rgba="1 1 1 1" type="mesh" friction="1 0.005 0.001" condim="3" margin="0.0005" contype="1" conaffinity="1"/>
+        <joint type="hinge" limited="true" damping="0.1" armature="0.001" margin="0.01" frictionloss="0.001"/>
+        <position ctrllimited="true" forcelimited="true" forcerange="-1 1" kp="2.0"/>
+        <mesh scale="0.001 0.001 0.001"/>
+    </default>
+
+  </default>
+
+  <asset>
+    <material name="white" rgba="1 1 1 1"/>
+    <material name="off_white" rgba="0.901961 0.921569 0.929412 1"/>
+    <material name="dark_grey" rgba="0.25 0.25 0.25 1"/>
+    <material name="green" rgba="0 1 0 1"/>
+    <material name="light_blue" rgba="0.039216 0.541176 0.780392 1"/>
+    <material name="metal" rgba="0.58 0.58 0.58 1"/>
+    <material name="silicone" rgba="0.1882 0.1882 0.1882 1"/>
+    <material name="gray" rgba="0.4627 0.4627 0.4627 1"/>
+    <material name="black" rgba="0.149 0.149 0.149 1"/>
+
+    <mesh name="link0_c" file="franka_emika_panda/assets/link0.stl"/>
+    <mesh name="link1_c" file="franka_emika_panda/assets/link1.stl"/>
+    <mesh name="link2_c" file="franka_emika_panda/assets/link2.stl"/>
+    <mesh name="link3_c" file="franka_emika_panda/assets/link3.stl"/>
+    <mesh name="link4_c" file="franka_emika_panda/assets/link4.stl"/>
+    <mesh name="link5_c0" file="franka_emika_panda/assets/link5_collision_0.obj"/>
+    <mesh name="link5_c1" file="franka_emika_panda/assets/link5_collision_1.obj"/>
+    <mesh name="link5_c2" file="franka_emika_panda/assets/link5_collision_2.obj"/>
+    <mesh name="link6_c" file="franka_emika_panda/assets/link6.stl"/>
+    <mesh name="link7_c" file="franka_emika_panda/assets/link7.stl"/>
+    <mesh file="franka_emika_panda/assets/link0_0.obj"/>
+    <mesh file="franka_emika_panda/assets/link0_1.obj"/>
+    <mesh file="franka_emika_panda/assets/link0_2.obj"/>
+    <mesh file="franka_emika_panda/assets/link0_3.obj"/>
+    <mesh file="franka_emika_panda/assets/link0_4.obj"/>
+    <mesh file="franka_emika_panda/assets/link0_5.obj"/>
+    <mesh file="franka_emika_panda/assets/link0_7.obj"/>
+    <mesh file="franka_emika_panda/assets/link0_8.obj"/>
+    <mesh file="franka_emika_panda/assets/link0_9.obj"/>
+    <mesh file="franka_emika_panda/assets/link0_10.obj"/>
+    <mesh file="franka_emika_panda/assets/link0_11.obj"/>
+    <mesh file="franka_emika_panda/assets/link1.obj"/>
+    <mesh file="franka_emika_panda/assets/link2.obj"/>
+    <mesh file="franka_emika_panda/assets/link3_0.obj"/>
+    <mesh file="franka_emika_panda/assets/link3_1.obj"/>
+    <mesh file="franka_emika_panda/assets/link3_2.obj"/>
+    <mesh file="franka_emika_panda/assets/link3_3.obj"/>
+    <mesh file="franka_emika_panda/assets/link4_0.obj"/>
+    <mesh file="franka_emika_panda/assets/link4_1.obj"/>
+    <mesh file="franka_emika_panda/assets/link4_2.obj"/>
+    <mesh file="franka_emika_panda/assets/link4_3.obj"/>
+    <mesh file="franka_emika_panda/assets/link5_0.obj"/>
+    <mesh file="franka_emika_panda/assets/link5_1.obj"/>
+    <mesh file="franka_emika_panda/assets/link5_2.obj"/>
+    <mesh file="franka_emika_panda/assets/link6_0.obj"/>
+    <mesh file="franka_emika_panda/assets/link6_1.obj"/>
+    <mesh file="franka_emika_panda/assets/link6_2.obj"/>
+    <mesh file="franka_emika_panda/assets/link6_3.obj"/>
+    <mesh file="franka_emika_panda/assets/link6_4.obj"/>
+    <mesh file="franka_emika_panda/assets/link6_5.obj"/>
+    <mesh file="franka_emika_panda/assets/link6_6.obj"/>
+    <mesh file="franka_emika_panda/assets/link6_7.obj"/>
+    <mesh file="franka_emika_panda/assets/link6_8.obj"/>
+    <mesh file="franka_emika_panda/assets/link6_9.obj"/>
+    <mesh file="franka_emika_panda/assets/link6_10.obj"/>
+    <mesh file="franka_emika_panda/assets/link6_11.obj"/>
+    <mesh file="franka_emika_panda/assets/link6_12.obj"/>
+    <mesh file="franka_emika_panda/assets/link6_13.obj"/>
+    <mesh file="franka_emika_panda/assets/link6_14.obj"/>
+    <mesh file="franka_emika_panda/assets/link6_15.obj"/>
+    <mesh file="franka_emika_panda/assets/link6_16.obj"/>
+    <mesh file="franka_emika_panda/assets/link7_0.obj"/>
+    <mesh file="franka_emika_panda/assets/link7_1.obj"/>
+    <mesh file="franka_emika_panda/assets/link7_2.obj"/>
+    <mesh file="franka_emika_panda/assets/link7_3.obj"/>
+    <mesh file="franka_emika_panda/assets/link7_4.obj"/>
+    <mesh file="franka_emika_panda/assets/link7_5.obj"/>
+    <mesh file="franka_emika_panda/assets/link7_6.obj"/>
+    <mesh file="franka_emika_panda/assets/link7_7.obj"/>
+  </asset>
+
+  <asset>
+		<mesh class="orca" name="AP-Assembly" file="orcahand_v1/assets/AP-Assembly.stl" scale="0.001 0.001 0.001"/>
+		<mesh class="orca" name="MiddleFinger" file="orcahand_v1/assets/MiddleFinger.stl" scale="0.001 0.001 0.001"/>
+		<mesh class="orca" name="T-AP-Assembly" file="orcahand_v1/assets/T-AP-Assembly.stl" scale="0.001 0.001 0.001"/>
+		<mesh class="orca" name="CarpalsAssembly" file="orcahand_v1/assets/CarpalsAssembly.stl" scale="0.001 0.001 0.001"/>
+		<mesh class="orca" name="FingerTipAssembly" file="orcahand_v1/assets/FingerTipAssembly.stl" scale="0.001 0.001 0.001"/>
+		<mesh class="orca" name="ThumbAssembly" file="orcahand_v1/assets/ThumbAssembly.stl" scale="0.001 0.001 0.001"/>
+		<mesh class="orca" name="I-PP-Assembly" file="orcahand_v1/assets/I-PP-Assembly.stl" scale="0.001 0.001 0.001"/>
+		<mesh class="orca" name="M-PP-Assembly" file="orcahand_v1/assets/M-PP-Assembly.stl" scale="0.001 0.001 0.001"/>
+		<mesh class="orca" name="TowerAssembly" file="orcahand_v1/assets/TowerAssembly.stl" scale="0.001 0.001 0.001"/>
+		<mesh class="orca" name="IndexFinger" file="orcahand_v1/assets/IndexFinger.stl" scale="0.001 0.001 0.001"/>
+		<mesh class="orca" name="PinkyFinger" file="orcahand_v1/assets/PinkyFinger.stl" scale="0.001 0.001 0.001"/>
+		<mesh class="orca" name="ThumbTipAssembly" file="orcahand_v1/assets/ThumbTipAssembly.stl" scale="0.001 0.001 0.001"/>
+		<mesh class="orca" name="T-TP-Assembly" file="orcahand_v1/assets/T-TP-Assembly.stl" scale="0.001 0.001 0.001"/>
+		<mesh class="orca" name="P-PP-Assembly" file="orcahand_v1/assets/P-PP-Assembly.stl" scale="0.001 0.001 0.001"/>
+		<mesh class="orca" name="RingFinger" file="orcahand_v1/assets/RingFinger.stl" scale="0.001 0.001 0.001"/>
+	</asset>
+
+  <worldbody>
+    <body name="link0" childclass="panda">
+      <inertial mass="0.629769" pos="-0.041018 -0.00014 0.049974"
+        fullinertia="0.00315 0.00388 0.004285 8.2904e-7 0.00015 8.2299e-6"/>
+      <geom mesh="link0_0" material="off_white" class="panda/visual"/>
+      <geom mesh="link0_1" material="dark_grey" class="panda/visual"/>
+      <geom mesh="link0_2" material="off_white" class="panda/visual"/>
+      <geom mesh="link0_3" material="dark_grey" class="panda/visual"/>
+      <geom mesh="link0_4" material="off_white" class="panda/visual"/>
+      <geom mesh="link0_5" material="dark_grey" class="panda/visual"/>
+      <geom mesh="link0_7" material="white" class="panda/visual"/>
+      <geom mesh="link0_8" material="white" class="panda/visual"/>
+      <geom mesh="link0_9" material="dark_grey" class="panda/visual"/>
+      <geom mesh="link0_10" material="off_white" class="panda/visual"/>
+      <geom mesh="link0_11" material="white" class="panda/visual"/>
+      <geom mesh="link0_c" class="panda/collision"/>
+      <body name="link1" pos="0 0 0.333">
+        <inertial mass="4.970684" pos="0.003875 0.002081 -0.04762"
+          fullinertia="0.70337 0.70661 0.0091170 -0.00013900 0.0067720 0.019169"/>
+        <joint name="joint1"/>
+        <site name="joint1"/>
+        <geom material="white" mesh="link1" class="panda/visual"/>
+        <geom mesh="link1_c" class="panda/collision"/>
+        <body name="link2" quat="1 -1 0 0">
+          <inertial mass="0.646926" pos="-0.003141 -0.02872 0.003495"
+            fullinertia="0.0079620 2.8110e-2 2.5995e-2 -3.925e-3 1.0254e-2 7.04e-4"/>
+          <joint name="joint2" range="-1.7628 1.7628"/>
+          <site name="joint2"/>
+          <geom material="white" mesh="link2" class="panda/visual"/>
+          <geom mesh="link2_c" class="panda/collision"/>
+          <body name="link3" pos="0 -0.316 0" quat="1 1 0 0">
+            <inertial mass="3.228604" pos="2.7518e-2 3.9252e-2 -6.6502e-2"
+              fullinertia="3.7242e-2 3.6155e-2 1.083e-2 -4.761e-3 -1.1396e-2 -1.2805e-2"/>
+            <joint name="joint3"/>
+            <site name="joint3"/>
+            <geom mesh="link3_0" material="white" class="panda/visual"/>
+            <geom mesh="link3_1" material="white" class="panda/visual"/>
+            <geom mesh="link3_2" material="white" class="panda/visual"/>
+            <geom mesh="link3_3" material="dark_grey" class="panda/visual"/>
+            <geom mesh="link3_c" class="panda/collision"/>
+            <body name="link4" pos="0.0825 0 0" quat="1 1 0 0">
+              <inertial mass="3.587895" pos="-5.317e-2 1.04419e-1 2.7454e-2"
+                fullinertia="2.5853e-2 1.9552e-2 2.8323e-2 7.796e-3 -1.332e-3 8.641e-3"/>
+              <joint name="joint4" range="-3.0718 -0.0698"/>
+              <site name="joint4"/>
+              <geom mesh="link4_0" material="white" class="panda/visual"/>
+              <geom mesh="link4_1" material="white" class="panda/visual"/>
+              <geom mesh="link4_2" material="dark_grey" class="panda/visual"/>
+              <geom mesh="link4_3" material="white" class="panda/visual"/>
+              <geom mesh="link4_c" class="panda/collision"/>
+              <body name="link5" pos="-0.0825 0.384 0" quat="1 -1 0 0">
+                <inertial mass="1.225946" pos="-1.1953e-2 4.1065e-2 -3.8437e-2"
+                  fullinertia="3.5549e-2 2.9474e-2 8.627e-3 -2.117e-3 -4.037e-3 2.29e-4"/>
+                <joint name="joint5"/>
+                <site name="joint5"/>
+                <geom mesh="link5_0" material="dark_grey" class="panda/visual"/>
+                <geom mesh="link5_1" material="white" class="panda/visual"/>
+                <geom mesh="link5_2" material="white" class="panda/visual"/>
+                <geom mesh="link5_c0" class="panda/collision"/>
+                <geom mesh="link5_c1" class="panda/collision"/>
+                <geom mesh="link5_c2" class="panda/collision"/>
+                <body name="link6" quat="1 1 0 0">
+                  <inertial mass="1.666555" pos="6.0149e-2 -1.4117e-2 -1.0517e-2"
+                    fullinertia="1.964e-3 4.354e-3 5.433e-3 1.09e-4 -1.158e-3 3.41e-4"/>
+                  <joint name="joint6" range="-0.0175 3.7525"/>
+                  <site name="joint6"/>
+                  <geom mesh="link6_0" material="off_white" class="panda/visual"/>
+                  <geom mesh="link6_1" material="white" class="panda/visual"/>
+                  <geom mesh="link6_2" material="dark_grey" class="panda/visual"/>
+                  <geom mesh="link6_3" material="white" class="panda/visual"/>
+                  <geom mesh="link6_4" material="white" class="panda/visual"/>
+                  <geom mesh="link6_5" material="white" class="panda/visual"/>
+                  <geom mesh="link6_6" material="white" class="panda/visual"/>
+                  <geom mesh="link6_7" material="light_blue" class="panda/visual"/>
+                  <geom mesh="link6_8" material="light_blue" class="panda/visual"/>
+                  <geom mesh="link6_9" material="dark_grey" class="panda/visual"/>
+                  <geom mesh="link6_10" material="dark_grey" class="panda/visual"/>
+                  <geom mesh="link6_11" material="white" class="panda/visual"/>
+                  <geom mesh="link6_12" material="green" class="panda/visual"/>
+                  <geom mesh="link6_13" material="white" class="panda/visual"/>
+                  <geom mesh="link6_14" material="dark_grey" class="panda/visual"/>
+                  <geom mesh="link6_15" material="dark_grey" class="panda/visual"/>
+                  <geom mesh="link6_16" material="white" class="panda/visual"/>
+                  <geom mesh="link6_c" class="panda/collision"/>
+                  <body name="link7" pos="0.088 0 0" quat="1 1 0 0">
+                    <inertial mass="7.35522e-01" pos="1.0517e-2 -4.252e-3 6.1597e-2"
+                      fullinertia="1.2516e-2 1.0027e-2 4.815e-3 -4.28e-4 -1.196e-3 -7.41e-4"/>
+                    <joint name="joint7"/>
+                    <site name="joint7"/>
+                    <geom mesh="link7_0" material="white" class="panda/visual"/>
+                    <geom mesh="link7_1" material="dark_grey" class="panda/visual"/>
+                    <geom mesh="link7_2" material="dark_grey" class="panda/visual"/>
+                    <geom mesh="link7_3" material="dark_grey" class="panda/visual"/>
+                    <geom mesh="link7_4" material="dark_grey" class="panda/visual"/>
+                    <geom mesh="link7_5" material="dark_grey" class="panda/visual"/>
+                    <geom mesh="link7_6" material="dark_grey" class="panda/visual"/>
+                    <geom mesh="link7_7" material="white" class="panda/visual"/>
+                    <geom mesh="link7_c" class="panda/collision"/>
+                    <body name="attachment" pos="0 0 0.107" quat="0.3826834 0 0 0.9238795">
+                      <camera name="handcam_depth" pos="-0.05 0 0" fovy="62" quat="0 0 1 0"/>
+                      <camera name="handcam_rgb" pos="-0.0 0.015 0.1" fovy="70.5" quat="-0.5 0.5 -0.5 0.5"/>
+                      <site name="attachment_site" quat="0 0 0 1"/>
+                    </body>
+
+                    <body name="root" pos="-0.03 -0.03 0.151" quat=" 0.653  0.653  0.271  0.271">
+                        <body name="TowerAssembly_8e26df17" pos="0.0 0.0 0.0" quat="1.0 0.0 0.0 0.0">
+                          <body name="CarpalsAssembly_a3f178b9" pos="0.03862890845062728 0.0014412498723578074 0.14109038811689056" quat="1.0 -3.0616169978683886e-17 -2.2204460492503136e-16 9.714451465470105e-17">
+                            <body name="T-TP-Assembly_8f310e51" pos="-0.03118350558327121 0.027675165636026754 -0.007674328988471495" quat="0.30673828436873996 -0.7354124897868741 0.6041400016798182 -0.009744390093888075">
+                              <body name="T-AP-Assembly_b68d2db9" pos="-0.03000000000000002 -2.42861286636753e-17 -1.8214596497756474e-17" quat="0.573576436351046 0.8191520442889919 0.0 -1.1102230246251565e-16">
+                                <body name="P-PP-Assembly_4e31112a" pos="4.708523807784693e-17 1.513645907263937e-16 -4.2834101494079344e-17" quat="-4.996003610813204e-16 -0.7071067811865476 7.216449660063518e-16 0.7071067811865474">
+                                  <body name="ThumbTipAssembly_da16f050" pos="0.0004999999999845258 1.960237527853792e-16 0.03299999999999989" quat="0.9999999999999996 -2.220446049250313e-16 -2.0816681711721685e-16 -5.551115123125783e-16">
+                                    <joint class="orca" name="ThumbTipAssembly_da16f050_joint" pos="-0.0 -0.0 0.0" axis="-1.3877787807814457e-16 -1.0000000000000018 1.6653345369377348e-16" range="-0.3490658503988659 1.7453292519943295"/>
+                                    <!-- <joint name="ThumbTipAssembly_da16f050_joint" pos="-0.13725528249709146 -0.09083064955243778 -0.11281689327909648" axis="-1.3877787807814457e-16 -1.0000000000000018 1.6653345369377348e-16" range="-0.3490658503988659 1.7453292519943295"/> -->
+                                    <geom class="orca" mesh="ThumbTipAssembly"/>
+                                  </body>
+                                  <joint class="orca" name="P-PP-Assembly_4e31112a_joint" pos="-0.0 -0.0 -0.0" axis="-1.27675647831893e-15 -0.9999999999999994 4.996003610813204e-16" range="-0.3490658503988659 2.007128639793479"/>
+                                  <!-- <joint name="P-PP-Assembly_4e31112a_joint" pos="-0.12493716415002687 -0.08077510107426261 -0.10269202363708826" axis="-1.27675647831893e-15 -0.9999999999999994 4.996003610813204e-16" range="-0.3490658503988659 2.007128639793479"/> -->
+                                  <geom class="orca" mesh="P-PP-Assembly"/>
+                                </body>
+                                <joint class="orca" name="T-AP-Assembly_b68d2db9_joint" pos="0.03 0.002 0.0063916678614429154" axis="-1.1102230246251565e-16 0.34202014332566866 0.9396926207859075" range="-0.7853981633974483 0.7853981633974483"/>
+                                <!-- <joint name="T-AP-Assembly_b68d2db9_joint" pos="0.05637594511670266 -0.011460195463730501 0.0063916678614429154" axis="-1.1102230246251565e-16 0.34202014332566866 0.9396926207859075" range="-0.7853981633974483 0.7853981633974483"/> -->
+                                <geom class="orca" mesh="T-AP-Assembly"/>
+                              </body>
+                              <joint class="orca" name="T-TP-Assembly_8f310e51_joint" pos="0.016999999999975042 6.852157730108388e-17 2.7301511745791984e-14" axis="-2.920774733183862e-12 3.3306690738754696e-16 1.0000000000000002" range="-0.9250245035569946 0.8377580409572782"/>
+                              <geom class="orca" mesh="T-TP-Assembly"/>
+                            </body>
+                            <body name="AP-Assembly_22c0dde4" pos="-0.03219649781676012 0.0023248750738696024 0.04344008658721097" quat="0.5712969039961256 0.6133821562881893 0.36239418910617205 -0.4074955576859359">
+                              <body name="I-PP-Assembly_32ddceb4" pos="0.0 0.0 0.0" quat="0.7071067811865477 -5.551115123125783e-17 -0.7071067811865475 0.0">
+                                <body name="FingerTipAssembly_cc9cd17e" pos="0.0004999999999839647 6.938893903907228e-18 0.03799999999999994" quat="1.0 0.0 2.7755575615628914e-17 5.551115123125783e-17">
+                                  <joint class="orca" name="FingerTipAssembly_cc9cd17e_joint" pos="-4.506562989359519e-18 5.895358766575946e-17 6.487401240321147e-17" axis="-1.1102230246251565e-15 -0.9999999999999998 -8.326672684688674e-17" range="-0.3490658503988659 2.2689280275926285"/>
+                                  <geom class="orca" mesh="FingerTipAssembly"/>
+                                </body>
+                                <joint class="orca" name="I-PP-Assembly_32ddceb4_joint" pos="-1.0554991142341346e-17 5.844005384212486e-17 6.500169455539819e-17" axis="-1.1102230246251565e-15 -0.9999999999999998 -8.326672684688674e-17" range="-0.3490658503988659 1.9198621771937625"/>
+                                <geom class="orca" mesh="I-PP-Assembly"/>
+                              </body>
+                              <joint class="orca" name="AP-Assembly_22c0dde4_joint" pos="0.020000000000000052 -2.3852447794681098e-18 4.336808689942018e-19" axis="4.163336342344337e-17 9.992007221626409e-16 -1.0000000000000013" range="-0.5235987755982988 0.5235987755982988"/>
+                              <geom class="orca" mesh="AP-Assembly"/>
+                            </body>
+                            <body name="AP-Assembly_8fe40f7e" pos="0.055183221766068616 0.008313798880845111 0.022423955548036893" quat="0.3673943353744606 0.22390383846930376 0.6525627977313669 -0.6237389425636992">
+                              <body name="P-PP-Assembly_c1041f9e" pos="8.45178423300355e-18 -1.0204819466498632e-17 -4.475629889943052e-18" quat="0.7071067811865476 -1.1102230246251565e-16 -0.7071067811865474 1.6653345369377348e-16">
+                                <body name="FingerTipAssembly_28a83376" pos="0.0004999999999844955 3.469446951953614e-17 0.03299999999999998" quat="1.0 -5.551115123125783e-17 0.0 -5.551115123125783e-17">
+                                  <joint class="orca" name="FingerTipAssembly_28a83376_joint" pos="-4.630531374131085e-18 -3.7088372491485756e-17 -3.145406773126967e-17" axis="-2.7755575615628914e-16 -1.0000000000000007 -2.498001805406602e-16" range="-0.3490658503988659 2.2689280275926285"/>
+                                  <geom class="orca" mesh="FingerTipAssembly"/>
+                                </body>
+                                <joint class="orca" name="P-PP-Assembly_c1041f9e_joint" pos="3.4409772224679328e-18 3.9175276362032155e-17 1.0647123163719203e-16" axis="-1.6653345369377348e-16 -1.0000000000000004 -2.220446049250313e-16" range="-0.3490658503988659 1.9198621771937625"/>
+                                <geom class="orca" mesh="P-PP-Assembly"/>
+                              </body>
+                              <joint class="orca" name="AP-Assembly_8fe40f7e_joint" pos="0.020000000000000014 2.42861286636753e-17 6.071532165918825e-18" axis="1.942890293094024e-16 -5.551115123125783e-16 -0.9999999999999997" range="-0.5235987755982988 0.5235987755982988"/>
+                              <geom class="orca" mesh="AP-Assembly"/>
+                            </body>
+                            <body name="AP-Assembly_0c2e1cd6" pos="-7.819110489514213e-34 -8.04894699130166e-18 0.04999999999999999" quat="0.5 0.5000000000000001 0.49999999999999994 -0.5000000000000001">
+                              <body name="M-PP-Assembly_8bc6ddb7" pos="0.0 0.0 0.0" quat="0.7071067811865476 0.0 -0.7071067811865475 0.0">
+                                <body name="FingerTipAssembly_a13adc36" pos="0.0004999999999727618 -3.469446951953614e-18 0.04600000000000007" quat="1.0 0.0 0.0 0.0">
+                                  <joint class="orca" name="FingerTipAssembly_a13adc36_joint" pos="5.421010862428354e-19 1.0168910106364605e-31 8.326672684688675e-17" axis="1.1102230246251565e-16 -1.0000000000000004 -2.7755575615628914e-17" range="-0.3490658503988659 2.2689280275926285"/>
+                                  <geom class="orca" mesh="FingerTipAssembly"/>
+                                </body>
+                                <joint class="orca" name="M-PP-Assembly_8bc6ddb7_joint" pos="8.011868568650901e-32 1.0477058897466563e-31 8.326672684688675e-17" axis="1.1102230246251565e-16 -1.0000000000000004 -2.7755575615628914e-17" range="-0.3490658503988659 1.9198621771937625"/>
+                                <geom class="orca" mesh="M-PP-Assembly"/>
+                              </body>
+                              <joint class="orca" name="AP-Assembly_0c2e1cd6_joint" pos="0.019999999999999987 3.771356811665857e-18 -1.701695755040975e-18" axis="-9.645057161491277e-31 -1.6653345369377348e-16 -0.9999999999999998" range="-0.5235987755982988 0.5235987755982988"/>
+                              <geom class="orca" mesh="AP-Assembly"/>
+                            </body>
+                            <body name="AP-Assembly_a3d92f10" pos="0.02668522427376689 0.0019917457033393317 0.04013715734793663" quat="0.4471963219974949 0.4132691663178327 0.5698177506584137 -0.5518439786728336">
+                              <body name="M-PP-Assembly_c004e538" pos="0.0 0.0 0.0" quat="0.7071067811865477 0.0 -0.7071067811865476 0.0">
+                                <body name="FingerTipAssembly_bc7e70d7" pos="0.0004999999999727601 1.5612511283791264e-17 0.04600000000000003" quat="1.0 2.7755575615628914e-17 0.0 5.551115123125783e-17">
+                                  <joint class="orca" name="FingerTipAssembly_bc7e70d7_joint" pos="-6.5371804131346096e-18 -1.5935858178068978e-17 1.6822041242320552e-16" axis="0.0 -0.9999999999999998 -5.551115123125783e-17" range="-0.3490658503988659 2.2689280275926285"/>
+                                  <geom class="orca" mesh="FingerTipAssembly"/>
+                                </body>
+                                <joint class="orca" name="M-PP-Assembly_c004e538_joint" pos="-6.247486316026924e-19 2.7821222532288604e-17 -5.000422469950927e-17" axis="0.0 -0.9999999999999998 -5.551115123125783e-17" range="-0.3490658503988659 1.9198621771937625"/>
+                                <geom class="orca" mesh="M-PP-Assembly"/>
+                              </body>
+                              <joint class="orca" name="AP-Assembly_a3d92f10_joint" pos="0.020000000000000052 -4.640385298237959e-17 5.421010862427522e-18" axis="2.0816681711721685e-16 -1.1102230246251565e-16 -0.9999999999999998" range="-0.5235987755982988 0.5235987755982988"/>
+                              <geom class="orca" mesh="AP-Assembly"/>
+                            </body>
+                            <joint class="orca" name="CarpalsAssembly_a3f178b9_joint" pos="0.002000000000000012 -0.0014412498723578018 -0.03871931353519552" axis="-1.0000000000000009 -1.4791141972893971e-31 -1.0947644252537633e-46" range="0.0 0.2"/>
+                            <geom class="orca" mesh="CarpalsAssembly"/>
+                          </body>
+                          <geom class="orca" mesh="TowerAssembly"/>
+                      </body>
+                  </body>
+
+                    
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <motor class="panda" name="actuator1" joint="joint1" ctrlrange="-87 87"/>
+    <motor class="panda" name="actuator2" joint="joint2" ctrlrange="-87 87"/>
+    <motor class="panda" name="actuator3" joint="joint3" ctrlrange="-87 87"/>
+    <motor class="panda" name="actuator4" joint="joint4" ctrlrange="-87 87"/>
+    <motor class="panda" name="actuator5" joint="joint5" ctrlrange="-12 12"/>
+    <motor class="panda" name="actuator6" joint="joint6" ctrlrange="-12 12"/>
+    <motor class="panda" name="actuator7" joint="joint7" ctrlrange="-12 12"/>
+  </actuator>
+
+  <actuator>
+		<position class="orca" name="wrist" joint="CarpalsAssembly_a3f178b9_joint" ctrlrange="-1.0471975511965976 1.0471975511965976"/>
+		<position class="orca" name="ring_abd" joint="AP-Assembly_a3d92f10_joint" ctrlrange="-0.5235987755982988 0.5235987755982988"/>
+		<position class="orca" name="ring_mcp" joint="M-PP-Assembly_c004e538_joint" ctrlrange="-0.3490658503988659 1.9198621771937625"/>
+		<position class="orca" name="ring_pip" joint="FingerTipAssembly_bc7e70d7_joint" ctrlrange="-0.3490658503988659 2.2689280275926285"/>
+		<position class="orca" name="middle_abd" joint="AP-Assembly_0c2e1cd6_joint" ctrlrange="-0.5235987755982988 0.5235987755982988"/>
+		<position class="orca" name="middle_mcp" joint="M-PP-Assembly_8bc6ddb7_joint" ctrlrange="-0.3490658503988659 1.9198621771937625"/>
+		<position class="orca" name="middle_pip" joint="FingerTipAssembly_a13adc36_joint" ctrlrange="-0.3490658503988659 2.2689280275926285"/>
+		<position class="orca" name="pinky_abd" joint="AP-Assembly_8fe40f7e_joint" ctrlrange="-0.5235987755982988 0.5235987755982988"/>
+		<position class="orca" name="pinky_mcp" joint="P-PP-Assembly_c1041f9e_joint" ctrlrange="-0.3490658503988659 1.9198621771937625"/>
+		<position class="orca" name="pinky_pip" joint="FingerTipAssembly_28a83376_joint" ctrlrange="-0.3490658503988659 2.2689280275926285"/>
+		<position class="orca" name="index_abd" joint="AP-Assembly_22c0dde4_joint" ctrlrange="-0.5235987755982988 0.5235987755982988"/>
+		<position class="orca" name="index_mcp" joint="I-PP-Assembly_32ddceb4_joint" ctrlrange="-0.3490658503988659 1.9198621771937625"/>
+		<position class="orca" name="index_pip" joint="FingerTipAssembly_cc9cd17e_joint" ctrlrange="-0.3490658503988659 2.2689280275926285"/>
+		<position class="orca" name="thumb_mcp" joint="T-TP-Assembly_8f310e51_joint" ctrlrange="-0.9250245035569946 0.8377580409572782"/>
+		<position class="orca" name="thumb_abd" joint="T-AP-Assembly_b68d2db9_joint" ctrlrange="-0.7853981633974483 0.7853981633974483"/>
+		<position class="orca" name="thumb_pip" joint="P-PP-Assembly_4e31112a_joint" ctrlrange="-0.3490658503988659 2.007128639793479"/>
+		<position class="orca" name="thumb_dip" joint="ThumbTipAssembly_da16f050_joint" ctrlrange="-0.3490658503988659 1.7453292519943295"/>
+	</actuator>
+
+  <sensor>
+    <jointpos name="panda/joint1_pos" joint="joint1"/>
+    <jointpos name="panda/joint2_pos" joint="joint2"/>
+    <jointpos name="panda/joint3_pos" joint="joint3"/>
+    <jointpos name="panda/joint4_pos" joint="joint4"/>
+    <jointpos name="panda/joint5_pos" joint="joint5"/>
+    <jointpos name="panda/joint6_pos" joint="joint6"/>
+    <jointpos name="panda/joint7_pos" joint="joint7"/>
+
+    <jointvel name="panda/joint1_vel" joint="joint1"/>
+    <jointvel name="panda/joint2_vel" joint="joint2"/>
+    <jointvel name="panda/joint3_vel" joint="joint3"/>
+    <jointvel name="panda/joint4_vel" joint="joint4"/>
+    <jointvel name="panda/joint5_vel" joint="joint5"/>
+    <jointvel name="panda/joint6_vel" joint="joint6"/>
+    <jointvel name="panda/joint7_vel" joint="joint7"/>
+
+    <torque name="panda/joint1_torque" site="joint1"/>
+    <torque name="panda/joint2_torque" site="joint2"/>
+    <torque name="panda/joint3_torque" site="joint3"/>
+    <torque name="panda/joint4_torque" site="joint4"/>
+    <torque name="panda/joint5_torque" site="joint5"/>
+    <torque name="panda/joint6_torque" site="joint6"/>
+    <torque name="panda/joint7_torque" site="joint7"/>
+
+    <force name="panda/wrist_force" site="attachment_site"/>
+  </sensor>
+
+  <sensor>
+    <framepos name="attachment_pos" objtype="site" objname="attachment_site"/>
+    <framequat name="attachment_quat" objtype="site" objname="attachment_site"/>
+    <framelinvel name="attachment_linvel" objtype="site" objname="attachment_site"/>
+    <frameangvel name="attachment_angvel" objtype="site" objname="attachment_site"/>
+  </sensor>
+
+</mujoco>

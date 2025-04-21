@@ -3,9 +3,10 @@ import shutil
 import pickle
 import cv2
 import numpy as np
+import json
 
 # Load the .pkl file
-input_file = '/home/clemens/serl/serl/examples/async_drq_sim/franka_lift_cube_image_20_trajs.pkl'
+input_file = '/home/clemens/serl_ws/src/dex-serl/demo_data/orca_pick_cube_sim_35_demos_2025-04-15_16-45-02.pkl'
 with open(input_file, 'rb') as f:
     data = pickle.load(f)
 
@@ -21,6 +22,24 @@ subfolder_path = os.path.join(output_dir, subfolder_name)
 if os.path.exists(subfolder_path):
     shutil.rmtree(subfolder_path)  # Remove existing directory
 os.makedirs(subfolder_path, exist_ok=True)
+
+# Function to recursively extract structure and dimensions
+def extract_structure(data):
+    if isinstance(data, dict):
+        return {key: extract_structure(value) for key, value in data.items()}
+    elif isinstance(data, (list, np.ndarray)):
+        return str(np.array(data).shape)
+    else:
+        return str(type(data))
+
+# Save the keys and values of the first entry to a JSON file in the same folder as the demo video
+if len(data) > 0:
+    first_entry = data[0]
+    first_entry_summary = {key: extract_structure(value) for key, value in first_entry.items()}
+    json_output_file = os.path.join(subfolder_path, "first_entry_summary.json")
+    with open(json_output_file, "w") as json_file:
+        json.dump(first_entry_summary, json_file, indent=4)
+    print(f"First entry summary saved to {json_output_file}")
 
 # Video writer setup
 front_output_file = os.path.join(subfolder_path, "front_camera_video.mp4")

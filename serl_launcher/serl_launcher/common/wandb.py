@@ -89,6 +89,9 @@ class WandBLogger(object):
         wandb.config.update(flag_dict)
 
     def log(self, data: dict, step: int = None):
+        if "video" in data:
+            video = data.pop("video")
+            wandb.log({"video": wandb.Video(video, fps=30)}, step=step)
         data_flat = _recursive_flatten_dict(data)
         data = {k: v for k, v in zip(*data_flat)}
         wandb.log(data, step=step)

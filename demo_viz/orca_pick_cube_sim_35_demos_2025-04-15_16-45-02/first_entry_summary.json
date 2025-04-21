@@ -1,0 +1,27 @@
+{
+    "observations": {
+        "front": "(1, 128, 128, 3)",
+        "state": "(1, 13)",
+        "wrist": "(1, 128, 128, 3)"
+    },
+    "actions": "(7,)",
+    "next_observations": {
+        "front": "(1, 128, 128, 3)",
+        "state": "(1, 13)",
+        "wrist": "(1, 128, 128, 3)"
+    },
+    "rewards": "<class 'float'>",
+    "masks": "<class 'numpy.float64'>",
+    "dones": "<class 'numpy.bool_'>",
+    "infos": {
+        "succeed": "<class 'numpy.bool_'>",
+        "left": "<class 'bool'>",
+        "right": "<class 'bool'>",
+        "original_state_obs": {
+            "tcp_pose": "(7,)",
+            "tcp_vel": "(6,)",
+            "gripper_pose": "<class 'float'>"
+        },
+        "grasp_penalty": "<class 'float'>"
+    }
+}

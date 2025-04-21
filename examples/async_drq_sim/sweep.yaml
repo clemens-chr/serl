@@ -1,0 +1,16 @@
+program: async_drq_sim.py
+method: grid  # You can also use "random" or "bayes"
+metric:
+  name: eval_success_rate
+  goal: maximize
+parameters:
+  exp_name:
+    values: ["serl_dev_drq_sim_test_resnet", "serl_dev_drq_sim_test_mobilenet"]
+  seed:
+    values: [0, 1, 2]
+  save_video:
+    values: [true, false]
+  eval_period:
+    values: [10000, 20000]
+  encoder_type:
+    values: ["resnet-pretrained", "mobilenet"]

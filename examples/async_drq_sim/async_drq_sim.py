@@ -10,11 +10,14 @@ from absl import app, flags
 from flax.training import checkpoints
 import cv2
 import os
+import threading
 
 from typing import Any, Dict, Optional
 import pickle as pkl
 import gym
 from gym.wrappers.record_episode_statistics import RecordEpisodeStatistics
+from gym.wrappers.record_video import RecordVideo
+
 
 from serl_launcher.agents.continuous.drq import DrQAgent
 from serl_launcher.common.evaluation import evaluate
@@ -56,7 +59,7 @@ flags.DEFINE_integer("steps_per_update", 30, "Number of steps per update the ser
 
 flags.DEFINE_integer("log_period", 10, "Logging period.")
 flags.DEFINE_integer("eval_period", 2000, "Evaluation period.")
-flags.DEFINE_integer("eval_n_trajs", 5, "Number of trajectories for evaluation.")
+flags.DEFINE_integer("eval_n_trajs", 20, "Number of trajectories for evaluation.")
 
 # flag to indicate if this is a leaner or a actor
 flags.DEFINE_boolean("learner", False, "Is this a learner or a trainer.")
@@ -68,6 +71,19 @@ flags.DEFINE_string("encoder_type", "resnet-pretrained", "Encoder type.")
 flags.DEFINE_string("demo_path", None, "Path to the demo data.")
 flags.DEFINE_integer("checkpoint_period", 0, "Period to save checkpoints.")
 flags.DEFINE_string("checkpoint_path", None, "Path to save checkpoints.")
+flags.DEFINE_string(
+    "reward_classifier_ckpt_path", None, "Path to reward classifier ckpt."
+)
+flags.DEFINE_integer(
+    "eval_checkpoint_step", 0, "evaluate the policy from ckpt at this step"
+)
+flags.DEFINE_boolean(
+    "save_video", False, "Save video of training"
+)
+flags.DEFINE_integer(
+    "video_period", 3000, "Period to save video of training"
+)
+
 
 flags.DEFINE_boolean(
     "debug", False, "Debug mode."
@@ -80,18 +96,64 @@ devices = jax.local_devices()
 num_devices = len(devices)
 sharding = jax.sharding.PositionalSharding(devices)
 
+video_dir = None
 
 def print_green(x):
     return print("\033[92m {}\033[00m".format(x))
-
+ 
 
 ##############################################################################
 
-
-def actor(agent: DrQAgent, data_store, env, sampling_rng):
+def actor(agent: DrQAgent, data_store, env, sampling_rng, video_dir=None):
     """
     This is the actor loop, which runs when "--actor" is set to True.
     """
+
+    if FLAGS.eval_checkpoint_step:
+        success_counter = 0
+        time_list = []
+
+        ckpt = checkpoints.restore_checkpoint(
+            FLAGS.checkpoint_path,
+            agent.state,
+            step=FLAGS.eval_checkpoint_step,
+        )
+        agent = agent.replace(state=ckpt)
+
+        for episode in range(FLAGS.eval_n_trajs):
+            obs, _ = env.reset()
+
+            print("Returned obs keys:", obs.keys())
+            print("Expected space:", env.observation_space)
+            print("Is valid?", env.observation_space.contains(obs))
+
+            done = False
+            start_time = time.time()
+            while not done:
+                actions = agent.sample_actions(
+                    observations=jax.device_put(obs),
+                    argmax=True,
+                )
+                actions = np.asarray(jax.device_get(actions))
+
+                next_obs, reward, done, truncated, info = env.step(actions)
+                obs = next_obs
+
+                if done:
+                    if reward:
+                        dt = time.time() - start_time
+                        time_list.append(dt)
+                        print(dt)
+
+                    success_counter += reward
+                    print(reward)
+                    print(f"{success_counter}/{episode + 1}")
+
+        print(f"success rate: {success_counter / FLAGS.eval_n_trajs}")
+        print(f"average time: {np.mean(time_list)}")
+        return  # after done eval, return and exit
+    
+
     client = TrainerClient(
         "actor_env",
         FLAGS.ip,
@@ -109,18 +171,16 @@ def actor(agent: DrQAgent, data_store, env, sampling_rng):
 
     client.recv_network_callback(update_params)
 
-    eval_env = gym.make(FLAGS.env)
-    if FLAGS.env == "PandaPickCubeVision-v0":
-        eval_env = SERLObsWrapper(eval_env)
-        eval_env = ChunkingWrapper(eval_env, obs_horizon=1, act_exec_horizon=None)
-    eval_env = RecordEpisodeStatistics(eval_env)
-
     obs, _ = env.reset()
     done = False
+
+    success_counter = 0
 
     # training loop
     timer = Timer()
     running_return = 0.0
+    num_episodes = 0
+    recording = False
 
     for step in tqdm.tqdm(range(FLAGS.max_steps), dynamic_ncols=True):
         timer.tick("total")
@@ -137,8 +197,14 @@ def actor(agent: DrQAgent, data_store, env, sampling_rng):
                 )
                 actions = np.asarray(jax.device_get(actions))
 
-        # Step environment
+
         with timer.context("step_env"):
+
+            # Start video recording if the step matches the video period
+            if step > 0 and step % FLAGS.video_period == 0 and FLAGS.save_video:
+                env.start_video_recorder()
+                print_green("Started video recording")
+                recording = True
 
             next_obs, reward, done, truncated, info = env.step(actions)
             reward = np.asarray(reward, dtype=np.float32)
@@ -156,21 +222,101 @@ def actor(agent: DrQAgent, data_store, env, sampling_rng):
 
             obs = next_obs
             if done or truncated:
-                running_return = 0.0
+                num_episodes += 1
+                if reward:
+                    success_counter += reward
+                    print(f"{success_counter}/{step + 1}")
+                else:
+                    print("Episode finished with no reward")
                 obs, _ = env.reset()
+
+                # Close video recording if the environment is done
+                if hasattr(env, "video_recorder") and FLAGS.save_video and recording:
+                    env.close_video_recorder()
+                    video_paths = [
+                        os.path.join(video_dir, f)
+                        for f in os.listdir(video_dir)
+                        if f.endswith(".mp4")
+                    ]
+                    video_paths = sorted(video_paths, key=os.path.getctime)
+                    video_paths = video_paths[-FLAGS.eval_n_trajs:]
+                    client.request("send-stats", {"video_paths": video_paths})
+                    print_green("Closed and sent video data")
+                    recording = False
 
         if step % FLAGS.steps_per_update == 0:
             client.update()
+           
+        if num_episodes % FLAGS.eval_n_trajs == 0 and num_episodes > 0:
+            avg_running_return = running_return / FLAGS.eval_n_trajs
+            success_rate = success_counter / FLAGS.eval_n_trajs
+            print_green(f"success rate: {success_rate}")
+            client.request("send-stats", {
+                "success_rate": success_rate,
+                "avg_running_return": avg_running_return,
+            })
+            success_counter = 0
+            running_return = 0.0
+            num_episodes = 0
 
-        if step % FLAGS.eval_period == 0:
-            with timer.context("eval"):
-                evaluate_info = evaluate(
-                    policy_fn=partial(agent.sample_actions, argmax=True),
-                    env=eval_env,
-                    num_episodes=FLAGS.eval_n_trajs,
-                )
-            stats = {"eval": evaluate_info}
-            client.request("send-stats", stats)
+
+
+        # CURRENTLY BUGGING CAUSE DESTROYS THE MAIN ENV
+        if (False):
+            if FLAGS.eval_period and step % FLAGS.eval_period == 0 and step > 0:
+
+                print_green("Evaluating...")
+
+                client.request("pause-training", {"pause": True})
+
+                eval_env = gym.make(FLAGS.env, render_mode="rgb_array")
+                if FLAGS.env == "PandaPickCubeVision-v0":
+                    eval_env = SERLObsWrapper(eval_env)
+                    eval_env = ChunkingWrapper(eval_env, obs_horizon=1, act_exec_horizon=None)
+                eval_env = RecordEpisodeStatistics(eval_env)
+
+                if FLAGS.save_video:
+                    video_dir = os.path.join(
+                        os.path.dirname(os.path.abspath(__file__)),
+                        "videos",
+                        FLAGS.exp_name or FLAGS.env,
+                    )
+                    print_green(f"Logging videos to {video_dir}")
+                    eval_env = RecordVideo(
+                        eval_env,
+                        video_dir,
+                        episode_trigger=lambda x: x % 1 == 0,
+                        name_prefix="video-eval",
+                    )
+
+                with timer.context("eval"):
+                    eval_agent = agent.replace(state=agent.state.replace(params=agent.state.params))
+                    evaluate_info = evaluate(
+                        policy_fn=partial(eval_agent.sample_actions, argmax=True),
+                        env=eval_env,
+                        num_episodes=FLAGS.eval_n_trajs,
+                        save_video=FLAGS.save_video,
+                    )
+                    eval_env.close()
+
+                stats = {"eval": evaluate_info}
+                print_green(f"Eval: {evaluate_info}")
+
+                client.request("send-stats", stats)
+
+                # wandb save video
+                if FLAGS.save_video:
+                    video_caption = f"step_{step}"
+                    video_paths = [
+                        os.path.join(video_dir, f)
+                        for f in os.listdir(video_dir)
+                        if f.endswith(".mp4")
+                    ]
+                    video_paths = sorted(video_paths, key=os.path.getctime)
+                    video_paths = video_paths[-FLAGS.eval_n_trajs:]
+                    client.request("send-stats", {"video_paths": video_paths})
+
+                client.request("pause-training", {"pause": False})
 
         timer.tock("total")
 
@@ -178,9 +324,7 @@ def actor(agent: DrQAgent, data_store, env, sampling_rng):
             stats = {"timer": timer.get_average_times()}
             client.request("send-stats", stats)
 
-
 ##############################################################################
-
 
 def learner(
     rng,
@@ -201,17 +345,35 @@ def learner(
     # To track the step in the training loop
     update_steps = 0
 
-    def stats_callback(type: str, payload: dict) -> dict:
-        """Callback for when server receives stats request."""
-        assert type == "send-stats", f"Invalid request type: {type}"
-        if wandb_logger is not None:
-            wandb_logger.log(payload, step=update_steps)
-        return {}  # not expecting a response
+    PAUSE_TRAINING = threading.Event()
+    PAUSE_TRAINING.clear()
 
+    def stats_callback(type: str, payload: dict) -> dict:
+        """Callback for when server receives stats or video requests."""
+        assert type == "send-stats" or type == "pause-training" 
+
+        if type == "pause-training":
+            if payload.get("pause", False):
+                print_green("Pausing training...")
+                PAUSE_TRAINING.set()
+            else:
+                print_green("Resuming training...")
+                PAUSE_TRAINING.clear()
+            return {}
+        
+        if wandb_logger is not None:
+            if "video_paths" in payload:
+                for video_path in payload["video_paths"]:
+                    wandb_logger.log({"video": video_path}, step=update_steps)
+            else:
+                wandb_logger.log(payload, step=update_steps)
+        return {} 
+    
     # Create server
     server = TrainerServer(make_trainer_config(), request_callback=stats_callback)
     server.register_data_store("actor_env", replay_buffer)
     server.start(threaded=True)
+
 
     # Loop to wait until replay_buffer is filled
     pbar = tqdm.tqdm(
@@ -265,9 +427,17 @@ def learner(
         desc="replay buffer",
     )
 
+    print_green(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Starting training...")
+
     for step in tqdm.tqdm(range(FLAGS.max_steps), dynamic_ncols=True, desc="learner"):
         # run n-1 critic updates and 1 critic + actor update.
         # This makes training on GPU faster by reducing the large batch transfer time from CPU to GPU
+
+
+        while PAUSE_TRAINING.is_set():
+            time.sleep(1)
+            print_green("Waiting for actor to resume training...")
+
         for critic_step in range(FLAGS.critic_actor_ratio - 1):
             with timer.context("sample_replay_buffer"):
                 batch = next(replay_iterator)
@@ -297,19 +467,18 @@ def learner(
         if step > 0 and step % (FLAGS.steps_per_update) == 0:
             agent = jax.block_until_ready(agent)
             server.publish_network(agent.state.params)
-
             print_green("sent updated network to actor")
-
 
         if update_steps % FLAGS.log_period == 0 and wandb_logger:
             wandb_logger.log(update_info, step=update_steps)
             wandb_logger.log({"timer": timer.get_average_times()}, step=update_steps)
 
-        if FLAGS.checkpoint_period and update_steps % FLAGS.checkpoint_period == 0:
+        if FLAGS.checkpoint_period and update_steps % FLAGS.checkpoint_period == 0 and update_steps > 0:
             assert FLAGS.checkpoint_path is not None
             checkpoints.save_checkpoint(
                 FLAGS.checkpoint_path, agent.state, step=update_steps, keep=20
             )
+            
 
         pbar.update(len(replay_buffer) - pbar.n)  # update replay buffer bar
         update_steps += 1
@@ -321,6 +490,8 @@ def learner(
 def main(_):
     assert FLAGS.batch_size % num_devices == 0
 
+    timestamp = time.strftime("%Y%m%d-%H%M%S")
+
     # seed
     rng = jax.random.PRNGKey(FLAGS.seed)
 
@@ -328,7 +499,7 @@ def main(_):
     if FLAGS.render:
         env = gym.make(FLAGS.env, render_mode="human")
     else:
-        env = gym.make(FLAGS.env)
+        env = gym.make(FLAGS.env, render_mode="rgb_array")
 
     if FLAGS.env == "PandaPickCube-v0":
         env = gym.wrappers.FlattenObservation(env)
@@ -336,6 +507,22 @@ def main(_):
         env = SERLObsWrapper(env)
         env = ChunkingWrapper(env, obs_horizon=1, act_exec_horizon=None)
 
+    video_dir = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "videos",
+        FLAGS.exp_name or FLAGS.env,
+        f"{timestamp}",
+    )
+    if FLAGS.save_video:
+
+        print_green(f"Logging videos to {video_dir}")
+        env = RecordVideo(
+            env,
+            video_dir,
+            episode_trigger=lambda x: x % 1 == 0,
+            name_prefix="video",
+        )
+                     
     image_keys = [key for key in env.observation_space.keys() if key != "state"]
 
     rng, sampling_rng = jax.random.split(rng)
@@ -352,6 +539,11 @@ def main(_):
     agent: DrQAgent = jax.device_put(
         jax.tree.map(jnp.array, agent), sharding.replicate()
     )
+
+    if FLAGS.checkpoint_path is None and FLAGS.checkpoint_period > 0:
+        FLAGS.checkpoint_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "checkpoints", f"checkpoint_{timestamp}"
+        )
 
     if FLAGS.learner:
         sampling_rng = jax.device_put(sampling_rng, device=sharding.replicate())
@@ -401,7 +593,6 @@ def main(_):
             demo_buffer = None
 
         # learner loop
-        print_green("starting learner loop")
         learner(
             sampling_rng,
             agent,
@@ -415,7 +606,7 @@ def main(_):
 
         # actor loop
         print_green("starting actor loop")
-        actor(agent, data_store, env, sampling_rng)
+        actor(agent, data_store, env, sampling_rng, video_dir=video_dir)
 
     else:
         raise NotImplementedError("Must be either a learner or an actor")

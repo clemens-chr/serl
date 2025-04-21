@@ -1,0 +1,16 @@
+{
+    "observations": {
+        "front": "(1, 128, 128, 3)",
+        "state": "(1, 7)",
+        "wrist": "(1, 128, 128, 3)"
+    },
+    "actions": "(4,)",
+    "next_observations": {
+        "front": "(1, 128, 128, 3)",
+        "state": "(1, 7)",
+        "wrist": "(1, 128, 128, 3)"
+    },
+    "rewards": "()",
+    "masks": "<class 'float'>",
+    "dones": "<class 'bool'>"
+}

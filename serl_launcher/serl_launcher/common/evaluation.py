@@ -45,22 +45,43 @@ def add_to(dict_of_lists, single_dict):
     for k, v in single_dict.items():
         dict_of_lists[k].append(v)
 
-
-def evaluate(policy_fn, env: gym.Env, num_episodes: int) -> Dict[str, float]:
+def evaluate(policy_fn, env: gym.Env, num_episodes: int, save_video: bool) -> Dict[str, float]:
     stats = defaultdict(list)
+    success_counter = 0  # Track the number of successful episodes
+
     for _ in range(num_episodes):
         observation, info = env.reset()
+
+        if hasattr(env, "video_recorder") and save_video:
+            env.start_video_recorder()
+            
         add_to(stats, flatten(info))
         done = False
+
         while not done:
             action = policy_fn(observation)
-            observation, _, terminated, truncated, info = env.step(action)
+            observation, reward, terminated, truncated, info = env.step(action)
             done = terminated or truncated
             add_to(stats, flatten(info))
+
+        # Check if the reward at the end of the episode is greater than 1
+        if reward > 1:
+            success_counter += 1  # Increment success counter
+
         add_to(stats, flatten(info, parent_key="final"))
 
+        if hasattr(env, "video_recorder") and save_video:
+            env.close_video_recorder()
+
+    # Calculate success rate
+    success_rate = success_counter / num_episodes
+    stats["success_rate"] = success_rate  # Add success rate to stats
+
+    # Calculate the mean for all other stats
     for k, v in stats.items():
-        stats[k] = np.mean(v)
+        if k != "success_rate":  # Skip recalculating success rate
+            stats[k] = np.mean(v)
+
     return stats
 
 
