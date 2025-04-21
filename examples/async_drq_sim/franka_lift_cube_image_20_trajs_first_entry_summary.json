@@ -1,8 +1,0 @@
-{
-    "observations": "<class 'dict'>",
-    "actions": "(4,)",
-    "next_observations": "<class 'dict'>",
-    "rewards": "()",
-    "masks": "<class 'float'>",
-    "dones": "<class 'bool'>"
-}
