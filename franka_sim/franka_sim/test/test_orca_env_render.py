@@ -7,13 +7,12 @@ import numpy as np
 
 import franka_sim
 
-env = gym.make("OrcaPickCubeVision-v0", render_mode="human", image_obs=True)
-action_spec = env.action_space
-
+env = gym.make("Orca1PickCubeVision-v0", render_mode="human", image_obs=True)
+action_spec = env.action_space  
+ 
 
 def sample():
     a = np.random.uniform(action_spec.low, action_spec.high, action_spec.shape)
-    a[0:3] = np.clip(a[0:3], -0.1, 0.1)
     return a.astype(action_spec.dtype)
 
 
@@ -29,6 +28,7 @@ for i in range(200):
     if done:
         obs, info = env.reset()
 
+
 import imageio
 
-imageio.mimsave("franka_lift_cube_render_test.mp4", frames, fps=20)
+imageio.mimsave("orca_1_lift_cube_render_test.mp4", frames, fps=20)

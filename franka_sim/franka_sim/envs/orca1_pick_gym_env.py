@@ -1,12 +1,12 @@
 from pathlib import Path
 from typing import Any, Literal, Tuple, Dict
-import cv2
-from datetime import datetime
 
 import gym
 import mujoco
 import numpy as np
 from gym import spaces
+
+from orca_core import OrcaHand
 
 try:
     import mujoco_py
@@ -19,13 +19,13 @@ from franka_sim.controllers import opspace
 from franka_sim.mujoco_gym_env import GymRenderingSpec, MujocoGymEnv
 
 _HERE = Path(__file__).parent
-_XML_PATH = _HERE / "xmls" / "arena.xml"
+_XML_PATH = _HERE / "xmls" / "arena_with_orca.xml"
 _PANDA_HOME = np.asarray((0, -0.785, 0, -2.35, 0, 1.57, np.pi / 4))
-_CARTESIAN_BOUNDS = np.asarray([[0.2, -0.3, 0], [0.6, 0.3, 0.5]])
-_SAMPLING_BOUNDS = np.asarray([[0.25, -0.25], [0.55, 0.25]])
+_CARTESIAN_BOUNDS = np.asarray([[0.1, -0.3, 0], [1, 0.3, 0.5]])
+_SAMPLING_BOUNDS = np.asarray([[0.5, -0.15], [0.75, 0.15]])
 
 
-class PandaPickCubeGymEnv(MujocoGymEnv):
+class Orca1PickCubeGymEnv(MujocoGymEnv):
     metadata = {"render_modes": ["rgb_array", "human"]}
 
     def __init__(
@@ -38,7 +38,6 @@ class PandaPickCubeGymEnv(MujocoGymEnv):
         render_spec: GymRenderingSpec = GymRenderingSpec(),
         render_mode: Literal["rgb_array", "human"] = "rgb_array",
         image_obs: bool = False,
-        video_dir: str = "./videos",
         save_video=False,
         reward_type: str = "dense",
     ):
@@ -73,9 +72,15 @@ class PandaPickCubeGymEnv(MujocoGymEnv):
         self._panda_ctrl_ids = np.asarray(
             [self._model.actuator(f"actuator{i}").id for i in range(1, 8)]
         )
-        self._gripper_ctrl_id = self._model.actuator("fingers_actuator").id
-        self._pinch_site_id = self._model.site("pinch").id
+        # self._gripper_ctrl_id = self._model.actuator("fingers_actuator").id
+        # self._pinch_site_id = self._model.site("pinch").id
+
+        self._attachment_site_id = self._model.site("attachment_site").id
         self._block_z = self._model.geom("block").size[2]
+
+        self.hand = OrcaHand('/home/clemens/serl_ws/src/dex-serl/franka_sim/franka_sim/envs/models/orcahand_v1')
+
+        hand_dofs = len(self.hand.joint_ids)
 
         self.observation_space = gym.spaces.Dict(
             {
@@ -87,13 +92,10 @@ class PandaPickCubeGymEnv(MujocoGymEnv):
                         "panda/tcp_vel": spaces.Box(
                             -np.inf, np.inf, shape=(3,), dtype=np.float32
                         ),
-                        "panda/gripper_pos": spaces.Box(
+                        # 17 dof hand
+                        "hand_pos": spaces.Box(
                             -np.inf, np.inf, shape=(1,), dtype=np.float32
                         ),
-                        # "panda/joint_pos": spaces.Box(-np.inf, np.inf, shape=(7,), dtype=np.float32),
-                        # "panda/joint_vel": spaces.Box(-np.inf, np.inf, shape=(7,), dtype=np.float32),
-                        # "panda/joint_torque": specs.Array(shape=(21,), dtype=np.float32),
-                        # "panda/wrist_force": specs.Array(shape=(3,), dtype=np.float32),
                         "block_pos": spaces.Box(
                             -np.inf, np.inf, shape=(3,), dtype=np.float32
                         ),
@@ -107,13 +109,13 @@ class PandaPickCubeGymEnv(MujocoGymEnv):
                 {
                     "state": gym.spaces.Dict(
                         {
-                            "panda/tcp_pos": spaces.Box(
+                            "tcp_pos": spaces.Box(
                                 -np.inf, np.inf, shape=(3,), dtype=np.float32
                             ),
-                            "panda/tcp_vel": spaces.Box(
+                            "tcp_vel": spaces.Box(
                                 -np.inf, np.inf, shape=(3,), dtype=np.float32
                             ),
-                            "panda/gripper_pos": spaces.Box(
+                            "hand_pos": spaces.Box(
                                 -np.inf, np.inf, shape=(1,), dtype=np.float32
                             ),
                         }
@@ -138,20 +140,18 @@ class PandaPickCubeGymEnv(MujocoGymEnv):
             )
 
         self.action_space = gym.spaces.Box(
-            low=np.asarray([-1.0, -1.0, -1.0, -1.0]),
-            high=np.asarray([1.0, 1.0, 1.0, 1.0]),
+            low=np.full((3 + 1,), -1.0),
+            high=np.full((3 + 1,), 1.0),
             dtype=np.float32,
-        )
+        )           
 
         if save_video:
-            print("Saving video to:", video_dir)
+            print("Saving videos!")
         self.save_video = save_video
         self.recording_frames = []
-        self.is_recording = False #To choose which episodes should be recorded
 
         print(self.action_space)
         print(self.observation_space)
-
 
         # NOTE: gymnasium is used here since MujocoRenderer is not available in gym. It
         # is possible to add a similar viewer feature with gym, but that can be a future TODO
@@ -167,37 +167,22 @@ class PandaPickCubeGymEnv(MujocoGymEnv):
         self, seed=None, **kwargs
     ) -> Tuple[Dict[str, np.ndarray], Dict[str, Any]]:
         """Reset the environment."""
-
-        ###########################################
-        if self.save_video and self.recording_frames:
-            self.save_video_recording()
-        ############################################
-
         mujoco.mj_resetData(self._model, self._data)
-
 
         # Reset arm to home position.
         self._data.qpos[self._panda_dof_ids] = _PANDA_HOME
         mujoco.mj_forward(self._model, self._data)
 
-        # Reset mocap body to home position.
-        tcp_pos = self._data.sensor("2f85/pinch_pos").data
-        self._data.mocap_pos[0] = tcp_pos
-
+        # Reset hand to home position.
+        for joint in self.hand.joint_ids:
+            if joint == 'thumb_abd':
+                self.data.ctrl[self._model.actuator(joint).id] = 30
+            else:   
+                self._data.ctrl[self._model.actuator(joint).id] = self.hand.joint_roms[joint][0]
+                
         # Sample a new block position.
         block_xy = np.random.uniform(*_SAMPLING_BOUNDS)
         self._data.jnt("block").qpos[:3] = (*block_xy, self._block_z)
-
-        # from scipy.spatial.transform import Rotation as R
-
-        # random_rotation = R.from_euler('x', np.random.uniform(0, 360), degrees=True).as_quat()
-
-        # self._data.jnt("block").qpos[3:7] = random_rotation  # Set the quaternion for rotation
-
-        # # Randomize block size
-        # random_size = np.random.uniform(0.01, 0.03, size=3)  # Random size for x, y, z dimensions
-        # self._model.geom("block").size[:] = random_size  # Update the block's geometry size
-
         mujoco.mj_forward(self._model, self._data)
 
         # Cache the initial block height.
@@ -222,7 +207,8 @@ class PandaPickCubeGymEnv(MujocoGymEnv):
             truncated: bool,
             info: dict[str, Any]
         """
-        x, y, z, grasp = action
+        x, y, z = action[:3]
+        hand_pose = action[3:]
 
         # Set the mocap position.
         pos = self._data.mocap_pos[0].copy()
@@ -230,17 +216,42 @@ class PandaPickCubeGymEnv(MujocoGymEnv):
         npos = np.clip(pos + dpos, *_CARTESIAN_BOUNDS)
         self._data.mocap_pos[0] = npos
 
-        # Set gripper grasp.
-        g = self._data.ctrl[self._gripper_ctrl_id] / 255
-        dg = grasp * self._action_scale[1]
-        ng = np.clip(g + dg, 0.0, 1.0)
-        self._data.ctrl[self._gripper_ctrl_id] = ng * 255
+        # Apply the relative hand_pose action (17 DOFs)
+        for i, joint in enumerate(self.hand.joint_ids):
+
+            if joint == 'index_abd' or joint == 'middle_abd' or joint == 'ring_abd' or joint == 'pinky_abd' or joint == 'wrist':
+                # Skip the index finger abduction joint
+                continue
+        
+            if joint == 'thumb_abd':
+                # For the thumb abduction joint, we need to set a specific value
+                self._data.ctrl[self._model.actuator(joint).id] = -30
+                continue
+
+            # Get the current control value for the actuator
+            current_value = self._data.ctrl[self._model.actuator(joint).id]
+        
+            # Get the relative change from the hand_pose action
+            delta = hand_pose * self._action_scale[1]  # Scale the action appropriately
+        
+            # Calculate the target value as the current value plus the delta
+            target_value = current_value + delta
+        
+            # Clip the target value to ensure it stays within the joint's range of motion
+            target_value = np.clip(
+                target_value,
+                np.deg2rad(self.hand.joint_roms[joint][0]),  # Minimum range (in radians)
+                np.deg2rad(self.hand.joint_roms[joint][1])   # Maximum range (in radians)
+            )
+        
+            # Set the new control value for the actuator
+            self._data.ctrl[self._model.actuator(joint).id] = target_value
 
         for _ in range(self._n_substeps):
             tau = opspace(
                 model=self._model,
                 data=self._data,
-                site_id=self._pinch_site_id,
+                site_id=self._attachment_site_id,
                 dof_ids=self._panda_dof_ids,
                 pos=self._data.mocap_pos[0],
                 ori=self._data.mocap_quat[0],
@@ -261,7 +272,7 @@ class PandaPickCubeGymEnv(MujocoGymEnv):
         if self._viewer is None:
             from gymnasium.envs.mujoco.mujoco_rendering import MujocoRenderer
             self._viewer = MujocoRenderer(self.model, self.data)
-            print("Initialized during render PandaPickCubeGymEnv with renderer:", self._viewer)
+            print("Initialized during render OrcaPickCubeGymEnv with renderer:", self._viewer)
 
         for cam_id in self.camera_id:
             rendered_frames.append(
@@ -275,34 +286,29 @@ class PandaPickCubeGymEnv(MujocoGymEnv):
         obs = {}
         obs["state"] = {}
 
-        tcp_pos = self._data.sensor("2f85/pinch_pos").data
-        obs["state"]["panda/tcp_pos"] = tcp_pos.astype(np.float32)
+        tcp_pos = self._data.sensor("attachment_pos").data
+        tcp_quat = self._data.sensor("attachment_quat").data
+        tcp_vel = self._data.sensor("attachment_linvel").data
 
-        tcp_vel = self._data.sensor("2f85/pinch_vel").data
-        obs["state"]["panda/tcp_vel"] = tcp_vel.astype(np.float32)
+        obs["state"]["tcp_pos"] = tcp_pos.astype(np.float32)
+        obs["state"]["tcp_vel"] = tcp_vel.astype(np.float32)
+        
+        # hand_pos = np.zeros(17)
+        # for i, joint in enumerate(self.hand.joint_ids):
+        #     hand_pos[i] = self._data.ctrl[self._model.actuator(joint).id]
 
-        gripper_pos = np.array(
-            self._data.ctrl[self._gripper_ctrl_id] / 255, dtype=np.float32
-        )
-        obs["state"]["panda/gripper_pos"] = gripper_pos
+        hand_pos = np.zeros(1)
+        ref_joint = "index_mcp"
+        hand_pos = self._data.ctrl[self._model.actuator(ref_joint).id]
 
-        # joint_pos = np.stack(
-        #     [self._data.sensor(f"panda/joint{i}_pos").data for i in range(1, 8)],
-        # ).ravel()
-        # obs["panda/joint_pos"] = joint_pos.astype(np.float32)
+        # Normalize the hand_pos between the max ROM and min ROM of the reference joint
+        min_rom = np.deg2rad(self.hand.joint_roms[ref_joint][0])
+        max_rom = np.deg2rad(self.hand.joint_roms[ref_joint][1])
+        hand_pos = (hand_pos - min_rom) / (max_rom - min_rom)
+        hand_pos = np.clip(hand_pos, 0.0, 1.0)
 
-        # joint_vel = np.stack(
-        #     [self._data.sensor(f"panda/joint{i}_vel").data for i in range(1, 8)],
-        # ).ravel()
-        # obs["panda/joint_vel"] = joint_vel.astype(np.float32)
 
-        # joint_torque = np.stack(
-        # [self._data.sensor(f"panda/joint{i}_torque").data for i in range(1, 8)],
-        # ).ravel()
-        # obs["panda/joint_torque"] = symlog(joint_torque.astype(np.float32))
-
-        # wrist_force = self._data.sensor("panda/wrist_force").data.astype(np.float32)
-        # obs["panda/wrist_force"] = symlog(wrist_force.astype(np.float32))
+        obs["state"]["hand_pos"] = hand_pos.astype(np.float32)
 
         if self.image_obs:
             obs["images"] = {}
@@ -313,18 +319,14 @@ class PandaPickCubeGymEnv(MujocoGymEnv):
 
         if self.render_mode == "human":
             self._viewer.render(self.render_mode)
-        
-        if self.save_video and self.is_recording:
-            for frame in obs["images"].values():
-                self.recording_frames.append(frame)
 
         return obs
 
     def _compute_reward(self) -> float:
         if self.reward_type == "dense":
             block_pos = self._data.sensor("block_pos").data
-            tcp_pos = self._data.sensor("2f85/pinch_pos").data
-            dist = np.linalg.norm(block_pos - tcp_pos)
+            center_pos = self._data.sensor("hand_center_pos").data
+            dist = np.linalg.norm(block_pos - center_pos)
             r_close = np.exp(-20 * dist)
             r_lift = (block_pos[2] - self._z_init) / (self._z_success - self._z_init)
             r_lift = np.clip(r_lift, 0.0, 1.0)
@@ -335,25 +337,10 @@ class PandaPickCubeGymEnv(MujocoGymEnv):
             block_pos = self._data.sensor("block_pos").data
             lift = block_pos[2] - self._z_init
             return float(lift > 0.2)
-    
-    def save_video_recording(self):
-        try:
-            video_writer = cv2.VideoWriter(
-                str(Path(self.video_dir) / f"video_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"),
-                cv2.VideoWriter_fourcc(*"mp4v"),
-                10,
-                self.recording_frames[0].shape[:2][::-1],
-            )
-            for frame in self.recording_frames:
-                video_writer.write(frame)
-            video_writer.release()
-            self.recording_frames.clear()
-        except Exception as e:
-            print(f"Failed to save video: {e}")
 
 
 if __name__ == "__main__":
-    env = PandaPickCubeGymEnv(render_mode="human")
+    env = Orca1PickCubeGymEnv(render_mode="human")
     env.reset()
     import time
     for i in range(100):
@@ -361,9 +348,9 @@ if __name__ == "__main__":
         action[0] = 0.09    
         action[1] = 0.0       
         action[2] = -0.1   
-        action[3] = 0.03
+        action[3] = 0.04
 
-        time.sleep(0.1)
         env.step(action)  
+        time.sleep(0.1)
         env.render()
     env.close()

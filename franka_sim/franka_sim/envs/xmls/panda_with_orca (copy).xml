@@ -212,11 +212,13 @@
                     <geom mesh="link7_c" class="panda/collision"/>
                     <body name="attachment" pos="0 0 0.107" quat="0.3826834 0 0 0.9238795">
                       <camera name="handcam_depth" pos="-0.05 0 0" fovy="62" quat="0 0 1 0"/>
-                      <!-- <camera name="handcam_rgb" pos="-0.05 0.015 0" fovy="42.5" quat="0 1 -1 0"/> -->
-                      <camera name="handcam_rgb" pos="0.13 0.0 0.1" fovy="45.5" quat="-0.5 0.5 -0.5 0.5"/>
+                      <camera name="handcam_rgb" pos="-0.0 0.015 0.1" fovy="70.5" quat="-0.5 0.5 -0.5 0.5"/>
                       <site name="attachment_site" quat="0 0 0 1"/>
-                      <site name="hand_center" pos="-0.04 0 0.07" quat="0 0 0 1" type ="sphere" size="0.01"/>
-                      <body name="root" pos="0.15 0.05 0.0" quat="0.5 0.5 -0.5 -0.5">
+                      <site name="hand_center" pos="-0.18 0 0.05" quat="0 0 0 1" type ="sphere" size="0.01"/>
+                    </body>
+
+                    <body name="root" pos="-0.03 -0.03 0.151" quat=" 0.653  0.653  0.271  0.271">
+                        <body name="TowerAssembly_8e26df17" pos="0.0 0.0 0.0" quat="1.0 0.0 0.0 0.0">
                           <body name="CarpalsAssembly_a3f178b9" pos="0.03862890845062728 0.0014412498723578074 0.14109038811689056" quat="1.0 -3.0616169978683886e-17 -2.2204460492503136e-16 9.714451465470105e-17">
                             <body name="T-TP-Assembly_8f310e51" pos="-0.03118350558327121 0.027675165636026754 -0.007674328988471495" quat="0.30673828436873996 -0.7354124897868741 0.6041400016798182 -0.009744390093888075">
                               <body name="T-AP-Assembly_b68d2db9" pos="-0.03000000000000002 -2.42861286636753e-17 -1.8214596497756474e-17" quat="0.573576436351046 0.8191520442889919 0.0 -1.1102230246251565e-16">
@@ -288,6 +290,7 @@
                             <joint class="orca" name="CarpalsAssembly_a3f178b9_joint" pos="0.002000000000000012 -0.0014412498723578018 -0.03871931353519552" axis="-1.0000000000000009 -1.4791141972893971e-31 -1.0947644252537633e-46" range="0.0 0.2"/>
                             <geom class="orca" mesh="CarpalsAssembly"/>
                           </body>
+                          <geom class="orca" mesh="TowerAssembly"/>
                       </body>
                   </body>
 

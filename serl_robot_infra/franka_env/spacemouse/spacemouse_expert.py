@@ -34,3 +34,5 @@ class SpaceMouseExpert:
         """Returns the latest action and button state of the SpaceMouse."""
         with self.state_lock:
             return self.latest_data["action"], self.latest_data["buttons"]
+
+

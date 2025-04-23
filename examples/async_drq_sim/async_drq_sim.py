@@ -142,11 +142,9 @@ def actor(agent: DrQAgent, data_store, env, sampling_rng, video_dir=None):
                     if reward:
                         dt = time.time() - start_time
                         time_list.append(dt)
-                        print(dt)
 
-                    success_counter += reward
-                    print(reward)
-                    print(f"{success_counter}/{episode + 1}")
+                    if reward > 0.7:
+                        success_counter += reward
 
         print(f"success rate: {success_counter / FLAGS.eval_n_trajs}")
         print(f"average time: {np.mean(time_list)}")
@@ -200,7 +198,7 @@ def actor(agent: DrQAgent, data_store, env, sampling_rng, video_dir=None):
         with timer.context("step_env"):
 
             # Start video recording if the step matches the video period
-            if step > 0 and step % FLAGS.video_period == 0 and FLAGS.save_video:
+            if step > 100 and step % FLAGS.video_period == 0 and FLAGS.save_video:
                 env.start_video_recorder()
                 print_green("Started video recording")
                 recording = True
@@ -224,9 +222,6 @@ def actor(agent: DrQAgent, data_store, env, sampling_rng, video_dir=None):
                 num_episodes += 1
                 if reward:
                     success_counter += reward
-                    print(f"{success_counter}/{step + 1}")
-                else:
-                    print("Episode finished with no reward")
                 obs, _ = env.reset()
 
                 # Close video recording if the environment is done
@@ -238,8 +233,9 @@ def actor(agent: DrQAgent, data_store, env, sampling_rng, video_dir=None):
                         if f.endswith(".mp4")
                     ]
                     video_paths = sorted(video_paths, key=os.path.getctime)
-                    video_paths = video_paths[-1]
-                    client.request("send-stats", {"video_paths": video_paths})
+                    video_path = video_paths[-1]
+                    print_green(f"Sending video to server: {video_path}")
+                    client.request("send-stats", {"video_path": video_path})
                     print_green("Closed and sent video data")
                     recording = False
 
@@ -303,9 +299,10 @@ def learner(
         
         
         if wandb_logger is not None:
-            if "video_paths" in payload:
-                for video_path in payload["video_paths"]:
-                    wandb_logger.log({"video": video_path}, step=update_steps)
+            if "video_path" in payload:  # Handle a single video path
+                video_path = payload["video_path"]
+                print_green(f"Received video path: {video_path}")
+                wandb_logger.log({"video": video_path}, step=update_steps)
             else:
                 wandb_logger.log(payload, step=update_steps)
         return {} 
@@ -444,7 +441,7 @@ def main(_):
 
     if FLAGS.env == "PandaPickCube-v0":
         env = gym.wrappers.FlattenObservation(env)
-    if FLAGS.env == "PandaPickCubeVision-v0":
+    else:
         env = SERLObsWrapper(env)
         env = ChunkingWrapper(env, obs_horizon=1, act_exec_horizon=None)
 
@@ -455,6 +452,9 @@ def main(_):
         f"{timestamp}",
     )
 
+    print("Observation space:", env.observation_space)
+    print("Action space:", env.action_space)
+    print(f"Image observations enabled: {env.image_obs}")
 
     if FLAGS.save_video:
         assert not FLAGS.render, "Cannot save video when render is True"
@@ -485,7 +485,7 @@ def main(_):
 
     if FLAGS.checkpoint_path is None and FLAGS.checkpoint_period > 0:
         FLAGS.checkpoint_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "checkpoints", f"checkpoint_{timestamp}"
+            os.path.dirname(os.path.abspath(__file__)), FLAGS.exp_name, f"{timestamp}"
         )
 
     if FLAGS.learner:

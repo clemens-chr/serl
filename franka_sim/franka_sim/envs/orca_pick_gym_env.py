@@ -39,7 +39,7 @@ class OrcaPickCubeGymEnv(MujocoGymEnv):
         render_mode: Literal["rgb_array", "human"] = "rgb_array",
         image_obs: bool = False,
         save_video=False,
-        reward_type: str = "sparse",
+        reward_type: str = "dense",
     ):
         self._action_scale = action_scale
 
@@ -61,7 +61,7 @@ class OrcaPickCubeGymEnv(MujocoGymEnv):
         }
 
         self.render_mode = render_mode
-        self.camera_id = (0, 1)
+        self.camera_id = (0, 2)
         self.image_obs = image_obs
         self.reward_type = reward_type
 
@@ -86,10 +86,10 @@ class OrcaPickCubeGymEnv(MujocoGymEnv):
             {
                 "state": gym.spaces.Dict(
                     {
-                        "tcp_pos": spaces.Box(
+                        "panda/tcp_pos": spaces.Box(
                             -np.inf, np.inf, shape=(3,), dtype=np.float32
                         ),
-                        "tcp_vel": spaces.Box(
+                        "panda/tcp_vel": spaces.Box(
                             -np.inf, np.inf, shape=(3,), dtype=np.float32
                         ),
                         # 17 dof hand
@@ -149,6 +149,9 @@ class OrcaPickCubeGymEnv(MujocoGymEnv):
             print("Saving videos!")
         self.save_video = save_video
         self.recording_frames = []
+
+        print(self.action_space)
+        print(self.observation_space)
 
         # NOTE: gymnasium is used here since MujocoRenderer is not available in gym. It
         # is possible to add a similar viewer feature with gym, but that can be a future TODO
@@ -279,7 +282,13 @@ class OrcaPickCubeGymEnv(MujocoGymEnv):
         
         hand_pos = np.zeros(17)
         for i, joint in enumerate(self.hand.joint_ids):
-            hand_pos[i] = self._data.ctrl[self._model.actuator(joint).id]
+            pos = self._data.ctrl[self._model.actuator(joint).id]
+            min_rom = np.deg2rad(self.hand.joint_roms[joint][0])
+            max_rom = np.deg2rad(self.hand.joint_roms[joint][1])
+            # Scale the position to be between 0 and 1
+            hand_pos[i] = (pos - min_rom) / (max_rom - min_rom)
+            # Clip to ensure it's within the range
+            hand_pos[i] = np.clip(hand_pos[i], 0, 1)
 
         obs["state"]["hand_pos"] = hand_pos.astype(np.float32)
 
@@ -298,12 +307,13 @@ class OrcaPickCubeGymEnv(MujocoGymEnv):
     def _compute_reward(self) -> float:
         if self.reward_type == "dense":
             block_pos = self._data.sensor("block_pos").data
-            tcp_pos = self._data.sensor("2f85/pinch_pos").data
-            dist = np.linalg.norm(block_pos - tcp_pos)
+            center_pos = self._data.sensor("hand_center_pos").data
+            dist = np.linalg.norm(block_pos - center_pos)
             r_close = np.exp(-20 * dist)
             r_lift = (block_pos[2] - self._z_init) / (self._z_success - self._z_init)
             r_lift = np.clip(r_lift, 0.0, 1.0)
             rew = 0.3 * r_close + 0.7 * r_lift
+            # print(f"dist: {dist}, r_close: {r_close}, r_lift: {r_lift}, rew: {rew}")
             return rew
         elif self.reward_type == "sparse":
             block_pos = self._data.sensor("block_pos").data
@@ -314,7 +324,14 @@ class OrcaPickCubeGymEnv(MujocoGymEnv):
 if __name__ == "__main__":
     env = OrcaPickCubeGymEnv(render_mode="human")
     env.reset()
+    import time
     for i in range(100):
-        env.step(np.random.uniform(-1, 1, 4))
+        action = np.zeros(20)  
+        action[0] = 0.09    
+        action[1] = 0.0       
+        action[2] = -0.1   
+
+        env.step(action)  
+        time.sleep(0.5)
         env.render()
     env.close()

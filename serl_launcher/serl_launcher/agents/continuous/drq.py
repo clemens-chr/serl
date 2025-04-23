@@ -185,6 +185,7 @@ class DrQAgent(SACAgent):
         else:
             raise NotImplementedError(f"Unknown encoder type: {encoder_type}")
 
+
         encoder_def = EncodingWrapper(
             encoder=encoders,
             use_proprio=use_proprio,
