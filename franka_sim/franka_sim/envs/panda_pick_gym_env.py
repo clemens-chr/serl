@@ -62,7 +62,7 @@ class PandaPickCubeGymEnv(MujocoGymEnv):
         }
 
         self.render_mode = render_mode
-        self.camera_id = (0, 2)
+        self.camera_id = (0, 1)
         self.image_obs = image_obs
         self.reward_type = reward_type
 

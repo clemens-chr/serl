@@ -12,6 +12,7 @@ from franka_env.envs.relative_env import RelativeFrame
 from franka_env.envs.wrappers import (
     GripperCloseEnv,
     SpacemouseIntervention,
+    AVPInterventionPinch,
     Quat2EulerWrapper,
 )
 

@@ -4,6 +4,5 @@ python async_drq_sim.py "$@" \
     --env Orca1PickCubeVision-v0 \
     --actor \
     --exp_name=orca1_new_site \
-    --eval_checkpoint_step 10000 \
-    --render \
+    --eval_checkpoint_step 15000 \
     --checkpoint_path /home/clemens/serl/serl/examples/async_drq_sim/orca1_new_site/20250422-221346/ \

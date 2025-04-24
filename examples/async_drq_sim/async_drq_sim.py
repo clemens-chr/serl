@@ -49,6 +49,7 @@ flags.DEFINE_integer("seed", 42, "Random seed.")
 flags.DEFINE_bool("save_model", False, "Whether to save model.")
 flags.DEFINE_integer("batch_size", 128, "Batch size.")
 flags.DEFINE_integer("critic_actor_ratio", 4, "critic to actor update ratio.")
+flags.DEFINE_float("discount", 0.97, "Discount factor.")
 
 flags.DEFINE_integer("max_steps", 1000000, "Maximum number of training steps.")
 flags.DEFINE_integer("replay_buffer_capacity", 200000, "Replay buffer capacity.")
@@ -100,7 +101,6 @@ video_dir = None
 def print_green(x):
     return print("\033[92m {}\033[00m".format(x))
  
-
 ##############################################################################
 
 def actor(agent: DrQAgent, data_store, env, sampling_rng, video_dir=None):
@@ -144,10 +144,10 @@ def actor(agent: DrQAgent, data_store, env, sampling_rng, video_dir=None):
                         time_list.append(dt)
 
                     if reward > 0.7:
-                        success_counter += reward
+                        success_counter += 1
 
-        print(f"success rate: {success_counter / FLAGS.eval_n_trajs}")
-        print(f"average time: {np.mean(time_list)}")
+        print_green(f"success rate: {success_counter / FLAGS.eval_n_trajs}")
+        print_green(f"average time: {np.mean(time_list)}")
         return  # after done eval, return and exit
     
 
@@ -439,17 +439,15 @@ def main(_):
     else:
         env = gym.make(FLAGS.env, render_mode="rgb_array")
 
-    if FLAGS.env == "PandaPickCube-v0":
-        env = gym.wrappers.FlattenObservation(env)
-    else:
-        env = SERLObsWrapper(env)
-        env = ChunkingWrapper(env, obs_horizon=1, act_exec_horizon=None)
+    env = SERLObsWrapper(env)
+    env = ChunkingWrapper(env, obs_horizon=1, act_exec_horizon=None)
 
     video_dir = os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
-        "videos",
+        "exp",
         FLAGS.exp_name or FLAGS.env,
         f"{timestamp}",
+        "videos"
     )
 
     print("Observation space:", env.observation_space)
@@ -475,6 +473,7 @@ def main(_):
         sample_action=env.action_space.sample(),
         image_keys=image_keys,
         encoder_type=FLAGS.encoder_type,
+        discount=FLAGS.discount,
     )
 
     # replicate agent across devices
@@ -485,7 +484,7 @@ def main(_):
 
     if FLAGS.checkpoint_path is None and FLAGS.checkpoint_period > 0:
         FLAGS.checkpoint_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), FLAGS.exp_name, f"{timestamp}"
+            os.path.dirname(os.path.abspath(__file__)), "exp", FLAGS.exp_name, f"{timestamp}", "checkpoints"
         )
 
     if FLAGS.learner:
