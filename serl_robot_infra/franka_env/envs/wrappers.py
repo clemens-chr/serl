@@ -224,22 +224,21 @@ class SpacemouseIntervention(gym.ActionWrapper):
 
 
 class AVPIntervention(gym.ActionWrapper):
-    def __init__(self, env, action_indices=None, avp_ip="10.93.181.127"):
+    def __init__(self, env, avp_ip="10.93.181.127", model_path=None, gripper_only=False):
         super().__init__(env)
 
-        self.gripper_enabled = True
-        if self.action_space.shape == (6,):
-            self.gripper_enabled = False
-
-        self.action_indices = action_indices
+        self.gripper_only = gripper_only
         
         # This is important to home the data from avp
         self.first_intervention = True
         
         self.reference_franka_pose = None
         self.reference_avp_pose = None
+
+        self.last_avp_pose = None
+        self.last_hand_pos = None
         
-        self.expert = AVPExpert(avp_ip=avp_ip)
+        self.expert = AVPExpert(avp_ip=avp_ip, model_path=model_path, gripper_only=gripper_only)
         self.left, self.right = False, False
 
     def action(self, action: np.ndarray) -> np.ndarray:
@@ -253,17 +252,19 @@ class AVPIntervention(gym.ActionWrapper):
         if not self.expert.is_intervening():
             self.first_intervention = True
             self.last_avp_pose = None
+            self.last_hand_pos = None
             return action, False
         
-        print("AVP intervening")
         
-        expert_a, grasping = self.expert.get_action()
-        self.grasping = grasping
+        expert_a, expert_hand_action = self.expert.get_action()
+
+        curr_avp_pose = expert_a
         
-        curr_avp_pose = expert_a[:6]
+        curr_hand_pos = expert_hand_action
         
         if self.first_intervention:
             self.last_avp_pose = curr_avp_pose.copy()
+            self.last_hand_pos = curr_hand_pos.copy()
             self.first_intervention = False
             return action, False
         
@@ -274,32 +275,22 @@ class AVPIntervention(gym.ActionWrapper):
         delta_pos[2] *= 80
         
         self.last_avp_pose = curr_avp_pose.copy()
-        
-        expert_a =  delta_pos
-        
-        if self.gripper_enabled:
-            # if self.grasping:
-            #     # gripper_action = np.random.uniform(0.95, 1, size=(1,))
-            #     gripper_action = np.random.uniform(0.9, 1, size=(1,))
-            # else:
-            #     gripper_action = np.random.uniform(-1, -0.9, size=(1,))
-            #     #gripper_action = np.random.uniform(0, 0.05, size=(1,))
 
-            if self.grasping:
-                # gripper_action = np.random.uniform(0.95, 1, size=(1,))
+        self.last_hand_pos = curr_hand_pos.copy()
+
+        if self.gripper_only:
+            if expert_hand_action:
                 gripper_action = np.random.uniform(0.9, 1.0, size=(1,))
             else:
-                #gripper_action = np.random.uniform(0, 0.05, size=(1,))
                 gripper_action = np.random.uniform(-1.0, -0.9, size=(1,))
             
             expert_a = np.concatenate((expert_a, gripper_action), axis=0)
+        else:
 
-        
-        if self.action_indices is not None:
-            filtered_expert_a = np.zeros_like(expert_a)
-            filtered_expert_a[self.action_indices] = expert_a[self.action_indices]
-            expert_a = filtered_expert_a
+            delta_hand_pos = curr_hand_pos - self.last_hand_pos
+            delta_hand_pos = np.ones_like(delta_hand_pos)
 
+            expert_a =  np.concatenate((delta_pos, delta_hand_pos), axis=0)
         
         return expert_a, True
         
@@ -307,7 +298,7 @@ class AVPIntervention(gym.ActionWrapper):
     def step(self, action):
         
         new_action, replaced = self.action(action)
-        
+        print("new action", new_action)
         obs, rew, done, truncated, info = self.env.step(new_action)
         if replaced:
             info["intervene_action"] = new_action

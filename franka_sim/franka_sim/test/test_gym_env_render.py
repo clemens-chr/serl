@@ -21,7 +21,10 @@ frames = []
 
 for i in range(200):
     a = sample()
+    start_time = time.time()
     obs, rew, done, truncated, info = env.step(a)
+    end_time = time.time()
+    print("time", end_time - start_time)
     images = obs["images"]
     frames.append(np.concatenate((images["front"], images["wrist"]), axis=0))
 

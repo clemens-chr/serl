@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Any, Literal, Tuple, Dict
+from scipy.spatial.transform import Rotation as R
 
 import gym
 import mujoco
@@ -19,18 +20,18 @@ from franka_sim.controllers import opspace
 from franka_sim.mujoco_gym_env import GymRenderingSpec, MujocoGymEnv
 
 _HERE = Path(__file__).parent
-_XML_PATH = _HERE / "xmls" / "arena_with_orca_no_tower.xml"
+_XML_PATH = _HERE / "xmls" / "arena_with_orca_static.xml"
 _PANDA_HOME = np.asarray((0, -0.785, 0, -2.35, 0, 1.57, np.pi / 4))
 _CARTESIAN_BOUNDS = np.asarray([[0.1, -0.3, 0], [1, 0.3, 0.5]])
 _SAMPLING_BOUNDS = np.asarray([[0.5, -0.15], [0.75, 0.15]])
 
 
-class Orca1PickCubeGymEnv(MujocoGymEnv):
+class OrcaRotateGymEnv(MujocoGymEnv):
     metadata = {"render_modes": ["rgb_array", "human"]}
 
     def __init__(
         self,
-        action_scale: np.ndarray = np.asarray([0.1, 1]),
+        action_scale: np.ndarray = np.asarray([0.01, 0.2]),
         seed: int = 0,
         control_dt: float = 0.02,
         physics_dt: float = 0.002,
@@ -65,15 +66,6 @@ class Orca1PickCubeGymEnv(MujocoGymEnv):
         self.image_obs = image_obs
         self.reward_type = reward_type
 
-        # Caching.
-        self._panda_dof_ids = np.asarray(
-            [self._model.joint(f"joint{i}").id for i in range(1, 8)]
-        )
-        self._panda_ctrl_ids = np.asarray(
-            [self._model.actuator(f"actuator{i}").id for i in range(1, 8)]
-        )
-        # self._gripper_ctrl_id = self._model.actuator("fingers_actuator").id
-        # self._pinch_site_id = self._model.site("pinch").id
 
         self._attachment_site_id = self._model.site("attachment_site").id
         self._block_z = self._model.geom("block").size[2]
@@ -86,15 +78,9 @@ class Orca1PickCubeGymEnv(MujocoGymEnv):
             {
                 "state": gym.spaces.Dict(
                     {
-                        "panda/tcp_pos": spaces.Box(
-                            -np.inf, np.inf, shape=(3,), dtype=np.float32
-                        ),
-                        "panda/tcp_vel": spaces.Box(
-                            -np.inf, np.inf, shape=(3,), dtype=np.float32
-                        ),
                         # 17 dof hand
                         "hand_pos": spaces.Box(
-                            -np.inf, np.inf, shape=(1,), dtype=np.float32
+                            -np.inf, np.inf, shape=(hand_dofs,), dtype=np.float32
                         ),
                         "block_pos": spaces.Box(
                             -np.inf, np.inf, shape=(3,), dtype=np.float32
@@ -109,14 +95,8 @@ class Orca1PickCubeGymEnv(MujocoGymEnv):
                 {
                     "state": gym.spaces.Dict(
                         {
-                            "tcp_pos": spaces.Box(
-                                -np.inf, np.inf, shape=(3,), dtype=np.float32
-                            ),
-                            "tcp_vel": spaces.Box(
-                                -np.inf, np.inf, shape=(3,), dtype=np.float32
-                            ),
                             "hand_pos": spaces.Box(
-                                -np.inf, np.inf, shape=(1,), dtype=np.float32
+                                -np.inf, np.inf, shape=(17,), dtype=np.float32
                             ),
                         }
                     ),
@@ -140,10 +120,10 @@ class Orca1PickCubeGymEnv(MujocoGymEnv):
             )
 
         self.action_space = gym.spaces.Box(
-            low=np.full((3 + 1,), -1.0),
-            high=np.full((3 + 1,), 1.0),
+            low=np.full((hand_dofs,), -1.0),
+            high=np.full((hand_dofs,), 1.0),
             dtype=np.float32,
-        )           
+        )
 
         if save_video:
             print("Saving videos!")
@@ -169,25 +149,21 @@ class Orca1PickCubeGymEnv(MujocoGymEnv):
         """Reset the environment."""
         mujoco.mj_resetData(self._model, self._data)
 
-        # Reset arm to home position.
-        self._data.qpos[self._panda_dof_ids] = _PANDA_HOME
-        mujoco.mj_forward(self._model, self._data)
 
         # Reset hand to home position.
         for joint in self.hand.joint_ids:
-            if joint == 'thumb_abd':
-                self.data.ctrl[self._model.actuator(joint).id] = 30
-            else:   
-                self._data.ctrl[self._model.actuator(joint).id] = self.hand.joint_roms[joint][0]
-                
+            self._data.ctrl[self._model.actuator(joint).id] = self.hand.joint_roms[joint][0]
+            
         # Sample a new block position.
-        block_xy = np.random.uniform(*_SAMPLING_BOUNDS)
-        self._data.jnt("block").qpos[:3] = (*block_xy, self._block_z)
+        
+        self.start_point = (0.0, -0.2, 0.18)
+        
+        
+        block_xy = self.start_point[:2]
+        
+        self._data.jnt("block").qpos[:3] = self.start_point
+        
         mujoco.mj_forward(self._model, self._data)
-
-        # Cache the initial block height.
-        self._z_init = self._data.sensor("block_pos").data[2]
-        self._z_success = self._z_init + 0.2
 
         obs = self._compute_observation()
         return obs, {}
@@ -195,44 +171,38 @@ class Orca1PickCubeGymEnv(MujocoGymEnv):
     def step(
         self, action: np.ndarray
     ) -> Tuple[Dict[str, np.ndarray], float, bool, bool, Dict[str, Any]]:
-        """
-        take a step in the environment.
-        Params:
-            action: np.ndarray
 
-        Returns:
-            observation: dict[str, np.ndarray],
-            reward: float,
-            done: bool,
-            truncated: bool,
-            info: dict[str, Any]
-        """
-        x, y, z = action[:3]
-        hand_pose = action[3:]
+        hand_joint_actions = action
 
-        # Set the mocap position.
-        pos = self._data.mocap_pos[0].copy()
-        dpos = np.asarray([x, y, z]) * self._action_scale[0]
-        npos = np.clip(pos + dpos, *_CARTESIAN_BOUNDS)
-        self._data.mocap_pos[0] = npos
 
-        # Apply the relative hand_pose action (17 DOFs)
+        #print(f"Hand joint actions: {hand_joint_actions}")
+        
+        self._block_qposadr = self._model.jnt_qposadr[self._model.joint("block").id]
+
+
+        #self._data.qpos[self._block_qposadr : self._block_qposadr + 3] = self.start_point
+
+        current_qpos_rot = self._data.qpos[self._block_qposadr + 3 : self._block_qposadr + 7].copy()
+        r_current = R.from_quat([current_qpos_rot[1], current_qpos_rot[2], current_qpos_rot[3], current_qpos_rot[0]])
+
+        delta_rot_degree_x = 0
+        delta_rot_degree_y = 0
+        delta_rot_degree_z = 0
+        r_delta = R.from_euler('xyz', [delta_rot_degree_x, delta_rot_degree_y, delta_rot_degree_z], degrees=True)
+
+        r_target = r_delta * r_current 
+
+        target_quat_xyzw = r_target.as_quat()
+        target_qpos_rot = np.array([target_quat_xyzw[3], target_quat_xyzw[0], target_quat_xyzw[1], target_quat_xyzw[2]])
+        
+        # self._data.qpos[self._block_qposadr + 3 : self._block_qposadr + 7] = target_qpos_rot
+
         for i, joint in enumerate(self.hand.joint_ids):
-
-            if joint == 'index_abd' or joint == 'middle_abd' or joint == 'ring_abd' or joint == 'pinky_abd' or joint == 'wrist':
-                # Skip the index finger abduction joint
-                continue
         
-            if joint == 'thumb_abd':
-                # For the thumb abduction joint, we need to set a specific value
-                self._data.ctrl[self._model.actuator(joint).id] = -30
-                continue
-
-            # Get the current control value for the actuator
             current_value = self._data.ctrl[self._model.actuator(joint).id]
-        
+    
             # Get the relative change from the hand_pose action
-            delta = hand_pose * self._action_scale[1]  # Scale the action appropriately
+            delta = hand_joint_actions[i] * self._action_scale[1]  # Scale the action appropriately
         
             # Calculate the target value as the current value plus the delta
             target_value = current_value + delta
@@ -243,28 +213,20 @@ class Orca1PickCubeGymEnv(MujocoGymEnv):
                 np.deg2rad(self.hand.joint_roms[joint][0]),  # Minimum range (in radians)
                 np.deg2rad(self.hand.joint_roms[joint][1])   # Maximum range (in radians)
             )
-        
-            # Set the new control value for the actuator
+
             self._data.ctrl[self._model.actuator(joint).id] = target_value
 
+
         for _ in range(self._n_substeps):
-            tau = opspace(
-                model=self._model,
-                data=self._data,
-                site_id=self._attachment_site_id,
-                dof_ids=self._panda_dof_ids,
-                pos=self._data.mocap_pos[0],
-                ori=self._data.mocap_quat[0],
-                joint=_PANDA_HOME,
-                gravity_comp=True,
-            )
-            self._data.ctrl[self._panda_ctrl_ids] = tau
             mujoco.mj_step(self._model, self._data)
+            
+            
 
         obs = self._compute_observation()
         rew = self._compute_reward()
         terminated = self.time_limit_exceeded()
-
+    
+        
         return obs, rew, terminated, False, {}
 
     def render(self):
@@ -286,27 +248,16 @@ class Orca1PickCubeGymEnv(MujocoGymEnv):
         obs = {}
         obs["state"] = {}
 
-        tcp_pos = self._data.sensor("attachment_pos").data
-        tcp_quat = self._data.sensor("attachment_quat").data
-        tcp_vel = self._data.sensor("attachment_linvel").data
-
-        obs["state"]["tcp_pos"] = tcp_pos.astype(np.float32)
-        obs["state"]["tcp_vel"] = tcp_vel.astype(np.float32)
         
-        # hand_pos = np.zeros(17)
-        # for i, joint in enumerate(self.hand.joint_ids):
-        #     hand_pos[i] = self._data.ctrl[self._model.actuator(joint).id]
-
-        hand_pos = np.zeros(1)
-        ref_joint = "index_mcp"
-        hand_pos = self._data.ctrl[self._model.actuator(ref_joint).id]
-
-        # Normalize the hand_pos between the max ROM and min ROM of the reference joint
-        min_rom = np.deg2rad(self.hand.joint_roms[ref_joint][0])
-        max_rom = np.deg2rad(self.hand.joint_roms[ref_joint][1])
-        hand_pos = (hand_pos - min_rom) / (max_rom - min_rom)
-        hand_pos = np.clip(hand_pos, 0.0, 1.0)
-
+        hand_pos = np.zeros(17)
+        for i, joint in enumerate(self.hand.joint_ids):
+            pos = self._data.ctrl[self._model.actuator(joint).id]
+            min_rom = np.deg2rad(self.hand.joint_roms[joint][0])
+            max_rom = np.deg2rad(self.hand.joint_roms[joint][1])
+            # Scale the position to be between 0 and 1
+            hand_pos[i] = (pos - min_rom) / (max_rom - min_rom)
+            # Clip to ensure it's within the range
+            hand_pos[i] = np.clip(hand_pos[i], 0, 1)
 
         obs["state"]["hand_pos"] = hand_pos.astype(np.float32)
 
@@ -324,33 +275,31 @@ class Orca1PickCubeGymEnv(MujocoGymEnv):
 
     def _compute_reward(self) -> float:
         if self.reward_type == "dense":
-            block_pos = self._data.sensor("block_pos").data
-            center_pos = self._data.sensor("hand_center_pos").data
-            dist = np.linalg.norm(block_pos - center_pos)
-            r_close = np.exp(-20 * dist)
-            r_lift = (block_pos[2] - self._z_init) / (self._z_success - self._z_init)
-            r_lift = np.clip(r_lift, 0.0, 1.0)
-            rew = 0.3 * r_close + 0.7 * r_lift
-            # print(f"dist: {dist}, r_close: {r_close}, r_lift: {r_lift}, rew: {rew}")
-            return rew
+            block_angular_velocity = self._data.sensor("block_gyro").data # Shape (3,)
+            angular_velocity_y = block_angular_velocity[1]
+            reward = angular_velocity_y * 0.1  
+            #(f"Block angular velocity: {block_angular_velocity}, Reward: {reward}")
+            return reward
+            
         elif self.reward_type == "sparse":
-            block_pos = self._data.sensor("block_pos").data
-            lift = block_pos[2] - self._z_init
-            return float(lift > 0.2)
+            # Sparse reward for achieving a rotation threshold
+            block_quat = self._data.sensor("block_quat").data
+            target_quat = np.array([1, 0, 0, 0])
+            dot_product = np.dot(block_quat, target_quat)
+            angle_diff = 2 * np.arccos(np.clip(dot_product, -1.0, 1.0))
+            return float(angle_diff < np.deg2rad(10))  # Reward if within 10 degrees of target
 
 
 if __name__ == "__main__":
-    env = Orca1PickCubeGymEnv(render_mode="human")
+    env = OrcaRotateGymEnv(render_mode="human")
     env.reset()
     import time
-    for i in range(100):
-        action = np.random.uniform(-1, 1, size=(4,))  
+    for i in range(500):
+        action = np.zeros(17)  
         action[0] = 0.09    
         action[1] = 0.0       
         action[2] = -0.1   
-        action[3] = 0.04
 
         env.step(action)  
-        time.sleep(0.1)
         env.render()
     env.close()

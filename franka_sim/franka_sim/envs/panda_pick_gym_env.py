@@ -75,7 +75,7 @@ class PandaPickCubeGymEnv(MujocoGymEnv):
         )
         self._gripper_ctrl_id = self._model.actuator("fingers_actuator").id
         self._pinch_site_id = self._model.site("pinch").id
-        self._block_z = self._model.geom("block").size[2]
+        self._block_z = self._model.geom("block").size[2] 
 
         self.observation_space = gym.spaces.Dict(
             {
@@ -201,7 +201,7 @@ class PandaPickCubeGymEnv(MujocoGymEnv):
         mujoco.mj_forward(self._model, self._data)
 
         # Cache the initial block height.
-        self._z_init = self._data.sensor("block_pos").data[2]
+        self._z_init = self._data.sensor("block_pos").data[2] 
         self._z_success = self._z_init + 0.2
 
         obs = self._compute_observation()
