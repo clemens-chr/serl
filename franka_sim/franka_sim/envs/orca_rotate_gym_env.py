@@ -23,7 +23,10 @@ _HERE = Path(__file__).parent
 _XML_PATH = _HERE / "xmls" / "arena_with_orca_static.xml"
 _PANDA_HOME = np.asarray((0, -0.785, 0, -2.35, 0, 1.57, np.pi / 4))
 _CARTESIAN_BOUNDS = np.asarray([[0.1, -0.3, 0], [1, 0.3, 0.5]])
-_SAMPLING_BOUNDS = np.asarray([[0.5, -0.15], [0.75, 0.15]])
+_SAMPLING_BOUNDS = np.asarray([[0.03, -0.18, 0.17], [0.05, -0.22, 0.2]])
+
+_TARGET_CUBE_POSITION = np.asarray([0.2, -0.2, 0.1])
+_TARGET_CUBE_ORIENTATION = np.asarray([0, 0, 0, 1])
 
 
 class OrcaRotateGymEnv(MujocoGymEnv):
@@ -67,36 +70,29 @@ class OrcaRotateGymEnv(MujocoGymEnv):
         self.reward_type = reward_type
 
 
+
         self._attachment_site_id = self._model.site("attachment_site").id
-        self._block_z = self._model.geom("block").size[2]
+        self._block_z = self._model.geom("block_core").size[2]
 
         self.hand = OrcaHand('/home/clemens/serl_ws/src/dex-serl/franka_sim/franka_sim/envs/models/orcahand_v1')
 
         hand_dofs = len(self.hand.joint_ids)
-
-        self.observation_space = gym.spaces.Dict(
-            {
-                "state": gym.spaces.Dict(
-                    {
-                        # 17 dof hand
-                        "hand_pos": spaces.Box(
-                            -np.inf, np.inf, shape=(hand_dofs,), dtype=np.float32
-                        ),
-                        "block_pos": spaces.Box(
-                            -np.inf, np.inf, shape=(3,), dtype=np.float32
-                        ),
-                    }
-                ),
-            }
-        )
-
-        if self.image_obs:
+        print("imageobs: ", image_obs)
+        
+        if image_obs:
             self.observation_space = gym.spaces.Dict(
                 {
                     "state": gym.spaces.Dict(
                         {
+                            # 17 dof hand
                             "hand_pos": spaces.Box(
-                                -np.inf, np.inf, shape=(17,), dtype=np.float32
+                                -np.inf, np.inf, shape=(hand_dofs,), dtype=np.float32
+                            ),
+                            "block_pos": spaces.Box(
+                                -np.inf, np.inf, shape=(3,), dtype=np.float32
+                            ),
+                            "block_orientation": spaces.Box(
+                                -np.inf, np.inf, shape=(4,), dtype=np.float32
                             ),
                         }
                     ),
@@ -114,6 +110,19 @@ class OrcaRotateGymEnv(MujocoGymEnv):
                                 shape=(render_spec.height, render_spec.width, 3),
                                 dtype=np.uint8,
                             ),
+                        }
+                    ),
+                }
+            )
+        else:
+            self.observation_space = gym.spaces.Dict(
+                {
+                    "state": gym.spaces.Dict(
+                        {
+                            "hand_pos": spaces.Box(
+                                -np.inf, np.inf, shape=(hand_dofs,), dtype=np.float32), 
+                            "block_pos": spaces.Box(
+                                -np.inf, np.inf, shape=(3,), dtype=np.float32),
                         }
                     ),
                 }
@@ -154,14 +163,24 @@ class OrcaRotateGymEnv(MujocoGymEnv):
         for joint in self.hand.joint_ids:
             self._data.ctrl[self._model.actuator(joint).id] = self.hand.joint_roms[joint][0]
             
-        # Sample a new block position.
-        
-        self.start_point = (0.0, -0.2, 0.18)
-        
-        
-        block_xy = self.start_point[:2]
-        
+        # Set block position from sampling bounds
+        self.start_point = np.random.uniform(*_SAMPLING_BOUNDS)
+        self.start_orientation = _TARGET_CUBE_ORIENTATION.copy()
+
+        # Create a rotation of 180 degrees about the Z-axis as a quaternion
+        rotation_180_z = R.from_euler('x', 90, degrees=True).as_quat()
+
+        # Multiply the original quaternion by the rotation quaternion
+        self.start_orientation = R.from_quat(self.start_orientation) * R.from_quat(rotation_180_z)
+
+        # Convert back to quaternion format
+        self.start_orientation = self.start_orientation.as_quat()
+
         self._data.jnt("block").qpos[:3] = self.start_point
+        self._data.jnt("block").qpos[3:7] = self.start_orientation
+
+        self.target_cube_orientation = _TARGET_CUBE_ORIENTATION.copy()
+        self._data.jnt("target_block").qpos[3:7] = self.target_cube_orientation
         
         mujoco.mj_forward(self._model, self._data)
 
@@ -173,14 +192,22 @@ class OrcaRotateGymEnv(MujocoGymEnv):
     ) -> Tuple[Dict[str, np.ndarray], float, bool, bool, Dict[str, Any]]:
 
         hand_joint_actions = action
-
-
-        #print(f"Hand joint actions: {hand_joint_actions}")
-        
+            
         self._block_qposadr = self._model.jnt_qposadr[self._model.joint("block").id]
 
+        # Apply random forces to the cube that increase with time
+        current_time = self._data.time
+        if current_time <= 5.0 and False:
 
-        #self._data.qpos[self._block_qposadr : self._block_qposadr + 3] = self.start_point
+            # Scale force magnitude from 0 to 2 Newtons over 5 seconds
+            force_magnitude = (current_time / 5.0) * 2.0 + 0.5
+            torque_magnitude = 0.06
+            # Generate random force direction
+            random_force = np.random.uniform(-1, 1, size=3)
+            random_force = random_force / np.linalg.norm(random_force) * force_magnitude * 0
+            # Apply the force to the cube
+            torque = [0, 0, torque_magnitude]
+            self._data.xfrc_applied[self._model.body("block").id] = np.concatenate([random_force, torque])
 
         current_qpos_rot = self._data.qpos[self._block_qposadr + 3 : self._block_qposadr + 7].copy()
         r_current = R.from_quat([current_qpos_rot[1], current_qpos_rot[2], current_qpos_rot[3], current_qpos_rot[0]])
@@ -216,17 +243,16 @@ class OrcaRotateGymEnv(MujocoGymEnv):
 
             self._data.ctrl[self._model.actuator(joint).id] = target_value
 
-
         for _ in range(self._n_substeps):
             mujoco.mj_step(self._model, self._data)
-            
-            
+                        
 
         obs = self._compute_observation()
-        rew = self._compute_reward()
-        terminated = self.time_limit_exceeded()
+        rew, flag = self._compute_reward()
+        if rew == 1:
+            print("Reward is 1, resetting environment")
+        terminated = self.time_limit_exceeded() or flag == -1 or rew == 1
     
-        
         return obs, rew, terminated, False, {}
 
     def render(self):
@@ -242,13 +268,11 @@ class OrcaRotateGymEnv(MujocoGymEnv):
             )
         return rendered_frames
 
-    # Helper methods.
-
     def _compute_observation(self) -> dict:
         obs = {}
         obs["state"] = {}
-
         
+        # Get hand positions
         hand_pos = np.zeros(17)
         for i, joint in enumerate(self.hand.joint_ids):
             pos = self._data.ctrl[self._model.actuator(joint).id]
@@ -260,13 +284,18 @@ class OrcaRotateGymEnv(MujocoGymEnv):
             hand_pos[i] = np.clip(hand_pos[i], 0, 1)
 
         obs["state"]["hand_pos"] = hand_pos.astype(np.float32)
+        
+        # Always get block position
+        block_pos = self._data.sensor("block_pos").data.astype(np.float32)
+        obs["state"]["block_pos"] = block_pos
+
+        # Get block orientation
+        block_quat = self._data.sensor("block_quat").data.astype(np.float32)
+        obs["state"]["block_orientation"] = block_quat
 
         if self.image_obs:
             obs["images"] = {}
             obs["images"]["front"], obs["images"]["wrist"] = self.render()
-        else:
-            block_pos = self._data.sensor("block_pos").data.astype(np.float32)
-            obs["state"]["block_pos"] = block_pos
 
         if self.render_mode == "human":
             self._viewer.render(self.render_mode)
@@ -274,32 +303,130 @@ class OrcaRotateGymEnv(MujocoGymEnv):
         return obs
 
     def _compute_reward(self) -> float:
-        if self.reward_type == "dense":
+        # if self.reward_type == "dense":
+        #     # Get current block position
+        #     block_pos = self._data.sensor("block_pos").data
+            
+        #     x_min, y_min, z_min = _SAMPLING_BOUNDS[0]
+        #     x_max, y_max, z_max = _SAMPLING_BOUNDS[1]
+            
+        #     in_region = (
+        #         x_min - 0.03 <= block_pos[0] <= x_max + 0.03 and
+        #         y_min - 0.03 <= block_pos[1] <= y_max + 0.03 
+        #     )
+            
+        #     if self._data.time >= 4.0:
+        #         return float(in_region)
+        #     return 0.0
+
+        if self.reward_type == "dense" and False:
+
+            # rotation reward around z
             block_angular_velocity = self._data.sensor("block_gyro").data # Shape (3,)
-            angular_velocity_y = block_angular_velocity[1]
-            reward = angular_velocity_y * 0.1  
-            #(f"Block angular velocity: {block_angular_velocity}, Reward: {reward}")
+            block_angular_velocity = np.round(block_angular_velocity, 3)
+            block_angular_velocity = np.clip(block_angular_velocity , [-0.9, -0.9, -0.9], [1, 1, 1])
+            angular_velocity_z = block_angular_velocity[2]
+
+            reward = angular_velocity_z
+
+            world_z = np.array([0.0, 0.0, 1.0])
+            block_quat = self._data.sensor("block_quat").data  
+            rot = R.from_quat(block_quat[[1, 2, 3, 0]])     # reorder to xyzw
+            cube_z_world = rot.apply(world_z)               # cube’s +Z in world frame
+
+            alignment = float(np.dot(cube_z_world, world_z))  # cos(angle between the two)
+
+            alignment = np.clip(alignment, -0.98, 1.0)  # Ensure alignment is within valid range
+
+            block_pos = self._data.sensor("block_pos").data
+
+            in_region = block_pos[2] >= 0.05
+
+            if not in_region:
+                print("warning, not in region reward -1")
+                return -1
+
+            # Apply penalty for misalignment
+            if alignment < 0.95:
+                penalty = (0.95 - alignment) * 2.0  # Larger penalty for misalignment
+                reward -= penalty
+            
+            
             return reward
+        
+
+        if self.reward_type == "dense":
+            block_pos = self._data.sensor("block_pos").data.astype(np.float32)
+            block_quat = self._data.sensor("block_quat").data.astype(np.float32)
+            target_quat = self._data.sensor("target_block_quat").data.astype(np.float32)
+
+            # Convert to (x, y, z, w) format for scipy
+            block_quat_xyzw = np.array([block_quat[1], block_quat[2], block_quat[3], block_quat[0]])
+            target_quat_xyzw = np.array([target_quat[1], target_quat[2], target_quat[3], target_quat[0]])
+
+            # Compute the relative rotation between current and target orientations
+            relative_rotation = R.from_quat(block_quat_xyzw).inv() * R.from_quat(target_quat_xyzw)
+
+            # Calculate the angle (in radians) representing the orientation difference
+            angle_diff = relative_rotation.magnitude()
+
+            # Define the reward as the negative of the angle difference
+            reward = -angle_diff
+
+            # Provide a bonus for achieving near-perfect alignment
+            threshold = 0.3  # radians
+
+            in_region = block_pos[2] >= 0.05
+
+            if not in_region:
+                print("warning, not in region reward -1")
+                return reward, -1
+
+            if angle_diff < threshold:
+                reward = 1
+            
+            return reward, 0
+            
             
         elif self.reward_type == "sparse":
-            # Sparse reward for achieving a rotation threshold
-            block_quat = self._data.sensor("block_quat").data
-            target_quat = np.array([1, 0, 0, 0])
-            dot_product = np.dot(block_quat, target_quat)
-            angle_diff = 2 * np.arccos(np.clip(dot_product, -1.0, 1.0))
-            return float(angle_diff < np.deg2rad(10))  # Reward if within 10 degrees of target
+            block_pos = self._data.sensor("block_pos").data.astype(np.float32)
+            block_quat = self._data.sensor("block_quat").data.astype(np.float32)
+            target_quat = self._data.sensor("target_block_quat").data.astype(np.float32)
 
+            # Convert to (x, y, z, w) format for scipy
+            block_quat_xyzw = np.array([block_quat[1], block_quat[2], block_quat[3], block_quat[0]])
+            target_quat_xyzw = np.array([target_quat[1], target_quat[2], target_quat[3], target_quat[0]])
+
+            # Compute the relative rotation between current and target orientations
+            relative_rotation = R.from_quat(block_quat_xyzw).inv() * R.from_quat(target_quat_xyzw)
+
+            # Calculate the angle (in radians) representing the orientation difference
+            angle_diff = relative_rotation.magnitude()
+
+
+            # Provide a bonus for achieving near-perfect alignment
+            threshold = 0.3  # radians
+
+            in_region = block_pos[2] >= 0.05
+
+            if not in_region:
+                print("warning, not in region reward -1")
+                return 0, -1
+
+            if angle_diff < threshold:
+                return 1, 0
+            
+            return 0, 0
 
 if __name__ == "__main__":
-    env = OrcaRotateGymEnv(render_mode="human")
+    env = OrcaRotateGymEnv (render_mode="human")
     env.reset()
     import time
-    for i in range(500):
-        action = np.zeros(17)  
-        action[0] = 0.09    
-        action[1] = 0.0       
-        action[2] = -0.1   
-
-        env.step(action)  
-        env.render()
+    while True:
+        action = env.action_space.sample()
+        _,  _, term , _, _ = env.step(action)
+        if term:
+            time.sleep(0.5)
+            env.reset()
+        
     env.close()

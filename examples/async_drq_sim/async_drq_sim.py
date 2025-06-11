@@ -417,6 +417,7 @@ def learner(
             checkpoints.save_checkpoint(
                 FLAGS.checkpoint_path, agent.state, step=update_steps, keep=20
             )
+            print_green(f"Checkpoint saved at step {update_steps} to {FLAGS.checkpoint_path}")
             
 
         pbar.update(len(replay_buffer) - pbar.n)  # update replay buffer bar
@@ -438,7 +439,7 @@ def main(_):
     if FLAGS.render:
         env = gym.make(FLAGS.env, render_mode="human")
     else:
-        env = gym.make(FLAGS.env, render_mode="rgb_array")
+        env = gym.make(FLAGS.env, render_mode="rgb_array", reward_type='sparse')
 
     env = SERLObsWrapper(env)
     env = ChunkingWrapper(env, obs_horizon=1, act_exec_horizon=None)
@@ -486,7 +487,10 @@ def main(_):
     if FLAGS.checkpoint_path is None and FLAGS.checkpoint_period > 0:
         FLAGS.checkpoint_path = os.path.join(
             os.path.dirname(os.path.abspath(__file__)), "exp", FLAGS.exp_name, f"{timestamp}", "checkpoints"
-        )
+            )
+        if FLAGS.checkpoint_path:
+            os.makedirs(FLAGS.checkpoint_path, exist_ok=True)
+            print_green(f"Checkpoints will be saved to {FLAGS.checkpoint_path}")
 
     if FLAGS.learner:
         sampling_rng = jax.device_put(sampling_rng, device=sharding.replicate())

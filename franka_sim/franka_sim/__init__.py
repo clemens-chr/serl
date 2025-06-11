@@ -44,6 +44,6 @@ register(
     id="OrcaGraspStatic-v0",
     entry_point="franka_sim.envs:OrcaGraspStaticGymEnv",
     max_episode_steps=100,
-    kwargs={"image_obs": False},
+    kwargs={"image_obs": True},
 )
 

@@ -23,7 +23,7 @@ _HERE = Path(__file__).parent
 _XML_PATH = _HERE / "xmls" / "arena_with_orca_static.xml"
 _PANDA_HOME = np.asarray((0, -0.785, 0, -2.35, 0, 1.57, np.pi / 4))
 _CARTESIAN_BOUNDS = np.asarray([[0.1, -0.3, 0], [1, 0.3, 0.5]])
-_SAMPLING_BOUNDS = np.asarray([[0.03, -0.2, 0.18], [0.03, -0.2, 0.18]])  # Fixed point for cube spawn
+_SAMPLING_BOUNDS = np.asarray([[0.03, -0.18, 0.17], [0.05, -0.22, 0.2]]) 
 
 
 class OrcaGraspStaticGymEnv(MujocoGymEnv):
@@ -68,12 +68,13 @@ class OrcaGraspStaticGymEnv(MujocoGymEnv):
 
 
         self._attachment_site_id = self._model.site("attachment_site").id
-        self._block_z = self._model.geom("block").size[2]
+        self._block_z = self._model.geom("block_core").size[2]
 
         self.hand = OrcaHand('/home/clemens/serl_ws/src/dex-serl/franka_sim/franka_sim/envs/models/orcahand_v1')
 
         hand_dofs = len(self.hand.joint_ids)
-
+        print("imageobs: ", image_obs)
+        
         if image_obs:
             self.observation_space = gym.spaces.Dict(
                 {
@@ -156,7 +157,7 @@ class OrcaGraspStaticGymEnv(MujocoGymEnv):
             self._data.ctrl[self._model.actuator(joint).id] = self.hand.joint_roms[joint][0]
             
         # Set block position from sampling bounds
-        self.start_point = _SAMPLING_BOUNDS[0]  # Use the lower bound (same as upper bound in this case)
+        self.start_point = np.random.uniform(*_SAMPLING_BOUNDS)
         self._data.jnt("block").qpos[:3] = self.start_point
         
         mujoco.mj_forward(self._model, self._data)
@@ -174,16 +175,17 @@ class OrcaGraspStaticGymEnv(MujocoGymEnv):
 
         # Apply random forces to the cube that increase with time
         current_time = self._data.time
-        if current_time <= 5.0:
+        if current_time <= 5.0 and False:
 
             # Scale force magnitude from 0 to 2 Newtons over 5 seconds
             force_magnitude = (current_time / 5.0) * 2.0 + 0.5
+            torque_magnitude = 0.06
             # Generate random force direction
             random_force = np.random.uniform(-1, 1, size=3)
-            random_force = random_force / np.linalg.norm(random_force) * force_magnitude
+            random_force = random_force / np.linalg.norm(random_force) * force_magnitude * 0
             # Apply the force to the cube
-            self._data.xfrc_applied[self._model.body("block").id] = np.concatenate([random_force, np.zeros(3)])
-
+            torque = [0, 0, torque_magnitude]
+            self._data.xfrc_applied[self._model.body("block").id] = np.concatenate([random_force, torque])
         current_qpos_rot = self._data.qpos[self._block_qposadr + 3 : self._block_qposadr + 7].copy()
         r_current = R.from_quat([current_qpos_rot[1], current_qpos_rot[2], current_qpos_rot[3], current_qpos_rot[0]])
 
@@ -224,8 +226,8 @@ class OrcaGraspStaticGymEnv(MujocoGymEnv):
 
         obs = self._compute_observation()
         rew = self._compute_reward()
-        if rew: 
-            print("Reward: ", rew)
+        # if rew: 
+        #     print("Reward: ", rew)
         terminated = self.time_limit_exceeded()
     
         return obs, rew, terminated, False, {}
@@ -274,21 +276,36 @@ class OrcaGraspStaticGymEnv(MujocoGymEnv):
         return obs
 
     def _compute_reward(self) -> float:
+        # if self.reward_type == "dense":
+        #     # Get current block position
+        #     block_pos = self._data.sensor("block_pos").data
+            
+        #     x_min, y_min, z_min = _SAMPLING_BOUNDS[0]
+        #     x_max, y_max, z_max = _SAMPLING_BOUNDS[1]
+            
+        #     in_region = (
+        #         x_min - 0.03 <= block_pos[0] <= x_max + 0.03 and
+        #         y_min - 0.03 <= block_pos[1] <= y_max + 0.03 
+        #     )
+            
+        #     if self._data.time >= 4.0:
+        #         return float(in_region)
+        #     return 0.0
+
         if self.reward_type == "dense":
-            # Get current block position
-            block_pos = self._data.sensor("block_pos").data
-            
-            x_min, y_min, z_min = _SAMPLING_BOUNDS[0]
-            x_max, y_max, z_max = _SAMPLING_BOUNDS[1]
-            
-            in_region = (
-                x_min - 0.03 <= block_pos[0] <= x_max + 0.03 and
-                y_min - 0.03 <= block_pos[1] <= y_max + 0.03 
-            )
-            
-            if self._data.time >= 4.0:
-                return float(in_region)
-            return 0.0
+
+            # rotation reward around z
+            block_angular_velocity = self._data.sensor("block_gyro").data # Shape (3,)
+            block_angular_velocity = np.round(block_angular_velocity, 3)
+            block_angular_velocity = np.clip(block_angular_velocity , [-1, -1, -1], [1, 1, 1])
+            print("Block ang Vel: ", block_angular_velocity)
+            angular_velocity_z = block_angular_velocity[2]
+            reward = angular_velocity_z
+            #(f"Block angular velocity: {block_angular_velocity}, Reward: {reward}")
+
+            # reward that cube is facing upwards
+
+            return reward
             
         elif self.reward_type == "sparse":
             # Sparse reward for achieving a rotation threshold
