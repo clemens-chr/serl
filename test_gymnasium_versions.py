@@ -3,8 +3,8 @@ import subprocess
 import sys
 import time
 
-PYTHON_PATH = "/home/clemens/miniforge3/envs/serl/bin/python"
-TEST_SCRIPT = "/home/clemens/serl/serl/franka_sim/franka_sim/envs/orca_rotate_gym_env.py"
+PYTHON_PATH = "/home/ccc/miniforge3/envs/serl/bin/python"
+TEST_SCRIPT = "/home/ccc/orca_ws/src/serl/franka_sim/franka_sim/envs/orca_rotate_gym_env.py"
 
 def run_test(version):
     print(f"\n=== Testing Gymnasium version {version} ===")

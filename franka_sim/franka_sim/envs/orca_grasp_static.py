@@ -20,7 +20,7 @@ from franka_sim.controllers import opspace
 from franka_sim.mujoco_gym_env import GymRenderingSpec, MujocoGymEnv
 
 _HERE = Path(__file__).parent
-_XML_PATH = _HERE / "xmls" / "arena_with_orca_static.xml"
+_XML_PATH = _HERE / "xmls" / "orcahand_description" / "scene_right.xml"
 _PANDA_HOME = np.asarray((0, -0.785, 0, -2.35, 0, 1.57, np.pi / 4))
 _CARTESIAN_BOUNDS = np.asarray([[0.1, -0.3, 0], [1, 0.3, 0.5]])
 _SAMPLING_BOUNDS = np.asarray([[0.03, -0.18, 0.17], [0.05, -0.22, 0.2]]) 
@@ -67,10 +67,10 @@ class OrcaGraspStaticGymEnv(MujocoGymEnv):
         self.reward_type = reward_type
 
 
-        self._attachment_site_id = self._model.site("attachment_site").id
+        #self._attachment_site_id = self._model.site("attachment_site").id
         self._block_z = self._model.geom("block_core").size[2]
 
-        self.hand = OrcaHand('/home/clemens/serl_ws/src/dex-serl/franka_sim/franka_sim/envs/models/orcahand_v1')
+        self.hand = OrcaHand('/home/ccc/orca_ws/src/serl/franka_sim/franka_sim/envs/xmls/orcahand_v1')
 
         hand_dofs = len(self.hand.joint_ids)
         print("imageobs: ", image_obs)
@@ -154,7 +154,8 @@ class OrcaGraspStaticGymEnv(MujocoGymEnv):
 
         # Reset hand to home position.
         for joint in self.hand.joint_ids:
-            self._data.ctrl[self._model.actuator(joint).id] = self.hand.joint_roms[joint][0]
+            id = str("right_" + str(joint) + "_actuator")
+            self._data.ctrl[self._model.actuator(id).id] = self.hand.joint_roms[joint][0]
             
         # Set block position from sampling bounds
         self.start_point = np.random.uniform(*_SAMPLING_BOUNDS)
@@ -203,7 +204,8 @@ class OrcaGraspStaticGymEnv(MujocoGymEnv):
 
         for i, joint in enumerate(self.hand.joint_ids):
         
-            current_value = self._data.ctrl[self._model.actuator(joint).id]
+            id = str("right_" + str(joint) + "_actuator")
+            current_value = self._data.ctrl[self._model.actuator(id).id]
     
             # Get the relative change from the hand_pose action
             delta = hand_joint_actions[i] * self._action_scale[1]  # Scale the action appropriately
@@ -218,7 +220,7 @@ class OrcaGraspStaticGymEnv(MujocoGymEnv):
                 np.deg2rad(self.hand.joint_roms[joint][1])   # Maximum range (in radians)
             )
 
-            self._data.ctrl[self._model.actuator(joint).id] = target_value
+            self._data.ctrl[self._model.actuator(id).id] = target_value
 
         for _ in range(self._n_substeps):
             mujoco.mj_step(self._model, self._data)
@@ -252,7 +254,8 @@ class OrcaGraspStaticGymEnv(MujocoGymEnv):
         # Get hand positions
         hand_pos = np.zeros(17)
         for i, joint in enumerate(self.hand.joint_ids):
-            pos = self._data.ctrl[self._model.actuator(joint).id]
+            id = str("right_" + str(joint) + "_actuator")
+            pos = self._data.ctrl[self._model.actuator(id).id]
             min_rom = np.deg2rad(self.hand.joint_roms[joint][0])
             max_rom = np.deg2rad(self.hand.joint_roms[joint][1])
             # Scale the position to be between 0 and 1

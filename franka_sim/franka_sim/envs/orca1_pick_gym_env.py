@@ -78,7 +78,7 @@ class Orca1PickCubeGymEnv(MujocoGymEnv):
         self._attachment_site_id = self._model.site("attachment_site").id
         self._block_z = self._model.geom("block").size[2]
 
-        self.hand = OrcaHand('/home/clemens/serl_ws/src/dex-serl/franka_sim/franka_sim/envs/models/orcahand_v1')
+        self.hand = OrcaHand('/home/ccc/orca_ws/src/serl/franka_sim/franka_sim/envs/xmls/orcahand_v1')
 
         hand_dofs = len(self.hand.joint_ids)
 

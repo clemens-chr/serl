@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Franka Robot Monitor</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .header {
+            background-color: #2c3e50;
+            color: white;
+            padding: 20px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .status {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 3px;
+            margin-left: 10px;
+        }
+        .status.connected {
+            background-color: #27ae60;
+        }
+        .status.disconnected {
+            background-color: #e74c3c;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .panel {
+            background-color: white;
+            border-radius: 5px;
+            padding: 20px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .panel h3 {
+            margin-top: 0;
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }
+        .data-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #ecf0f1;
+        }
+        .data-label {
+            font-weight: bold;
+            color: #34495e;
+        }
+        .data-value {
+            font-family: monospace;
+            color: #2c3e50;
+        }
+        .array-value {
+            font-size: 0.9em;
+            word-break: break-all;
+        }
+        .controls {
+            grid-column: 1 / -1;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 15px;
+        }
+        button {
+            padding: 10px 15px;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .btn-primary {
+            background-color: #3498db;
+            color: white;
+        }
+        .btn-success {
+            background-color: #27ae60;
+            color: white;
+        }
+        .btn-danger {
+            background-color: #e74c3c;
+            color: white;
+        }
+        .btn-warning {
+            background-color: #f39c12;
+            color: white;
+        }
+        button:hover {
+            opacity: 0.8;
+        }
+        .input-group {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        input[type="number"] {
+            padding: 5px;
+            border: 1px solid #bdc3c7;
+            border-radius: 3px;
+            width: 80px;
+        }
+        .pose-inputs {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 5px;
+            margin-bottom: 10px;
+        }
+        .pose-inputs input {
+            width: 100%;
+        }
+        .last-update {
+            font-size: 0.9em;
+            color: #7f8c8d;
+            text-align: right;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Franka Robot Monitor</h1>
+            <span>Status: <span id="connection-status" class="status disconnected">Disconnected</span></span>
+            <span class="last-update" id="last-update">Last update: Never</span>
+        </div>
+
+        <div class="grid">
+            <div class="panel">
+                <h3>Robot Position & Orientation</h3>
+                <div id="position-data"></div>
+            </div>
+
+            <div class="panel">
+                <h3>Velocity & Forces</h3>
+                <div id="velocity-data"></div>
+            </div>
+
+            <div class="panel">
+                <h3>Joint States</h3>
+                <div id="joint-data"></div>
+            </div>
+
+            <div class="panel">
+                <h3>System Info</h3>
+                <div id="system-data"></div>
+            </div>
+
+            <div class="panel controls">
+                <h3>Robot Controls</h3>
+                
+                <div class="button-group">
+                    <button class="btn-success" onclick="sendCommand('/startimp')">Start Impedance</button>
+                    <button class="btn-danger" onclick="sendCommand('/stopimp')">Stop Impedance</button>
+                    <button class="btn-warning" onclick="sendCommand('/clearerr')">Clear Errors</button>
+                    <button class="btn-primary" onclick="sendCommand('/jointreset')">Reset Joints</button>
+                </div>
+
+                <div class="button-group">
+                    <button class="btn-success" onclick="sendCommand('/activate_gripper')">Activate Gripper</button>
+                    <button class="btn-primary" onclick="sendCommand('/open_gripper')">Open Gripper</button>
+                    <button class="btn-primary" onclick="sendCommand('/close_gripper')">Close Gripper</button>
+                    <button class="btn-warning" onclick="sendCommand('/reset_gripper')">Reset Gripper</button>
+                </div>
+
+                <div class="input-group">
+                    <label>Gripper Position (0-255):</label>
+                    <input type="number" id="gripper-pos" min="0" max="255" value="128">
+                    <button class="btn-primary" onclick="moveGripper()">Move Gripper</button>
+                </div>
+
+                <h4>Move to Pose [x, y, z, qx, qy, qz, qw]:</h4>
+                <div class="pose-inputs">
+                    <input type="number" id="pose-x" step="0.001" placeholder="x">
+                    <input type="number" id="pose-y" step="0.001" placeholder="y">
+                    <input type="number" id="pose-z" step="0.001" placeholder="z">
+                    <input type="number" id="pose-qx" step="0.001" placeholder="qx">
+                    <input type="number" id="pose-qy" step="0.001" placeholder="qy">
+                    <input type="number" id="pose-qz" step="0.001" placeholder="qz">
+                    <input type="number" id="pose-qw" step="0.001" placeholder="qw">
+                </div>
+                <button class="btn-primary" onclick="moveToPose()">Move to Pose</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let isConnected = false;
+        let updateInterval;
+
+        function updateConnectionStatus(connected) {
+            isConnected = connected;
+            const statusElement = document.getElementById('connection-status');
+            if (connected) {
+                statusElement.textContent = 'Connected';
+                statusElement.className = 'status connected';
+            } else {
+                statusElement.textContent = 'Disconnected';
+                statusElement.className = 'status disconnected';
+            }
+        }
+
+        function formatValue(value) {
+            if (Array.isArray(value)) {
+                if (value.length > 7) {
+                    // For large arrays like jacobian, show dimensions
+                    return `Array [${value.length}] (${value[0]?.length || 'N/A'} cols)`;
+                } else {
+                    // For small arrays, show values with limited precision
+                    return '[' + value.map(v => typeof v === 'number' ? v.toFixed(3) : v).join(', ') + ']';
+                }
+            } else if (typeof value === 'number') {
+                return value.toFixed(4);
+            } else if (typeof value === 'boolean') {
+                return value ? 'Yes' : 'No';
+            }
+            return value;
+        }
+
+        function createDataRow(label, value) {
+            return `
+                <div class="data-row">
+                    <span class="data-label">${label}:</span>
+                    <span class="data-value ${Array.isArray(value) ? 'array-value' : ''}">${formatValue(value)}</span>
+                </div>
+            `;
+        }
+
+        function updateDisplay(data) {
+            // Position & Orientation
+            const positionHtml = `
+                ${createDataRow('Position X', data.pos[0])}
+                ${createDataRow('Position Y', data.pos[1])}
+                ${createDataRow('Position Z', data.pos[2])}
+                ${createDataRow('Quaternion X', data.pos[3])}
+                ${createDataRow('Quaternion Y', data.pos[4])}
+                ${createDataRow('Quaternion Z', data.pos[5])}
+                ${createDataRow('Quaternion W', data.pos[6])}
+            `;
+            document.getElementById('position-data').innerHTML = positionHtml;
+
+            // Velocity & Forces
+            const velocityHtml = `
+                ${createDataRow('Linear Velocity', data.vel.slice(0, 3))}
+                ${createDataRow('Angular Velocity', data.vel.slice(3, 6))}
+                ${createDataRow('Force', data.force)}
+                ${createDataRow('Torque', data.torque)}
+            `;
+            document.getElementById('velocity-data').innerHTML = velocityHtml;
+
+            // Joint States
+            const jointHtml = `
+                ${createDataRow('Joint Positions', data.q)}
+                ${createDataRow('Joint Velocities', data.dq)}
+                ${createDataRow('Jacobian Size', `${data.jacobian.length}x${data.jacobian[0]?.length || 0}`)}
+            `;
+            document.getElementById('joint-data').innerHTML = jointHtml;
+
+            // System Info
+            const systemHtml = `
+                ${createDataRow('Robot IP', data.robot_ip)}
+                ${createDataRow('Gripper Type', data.gripper_type)}
+                ${createDataRow('Gripper Position', data.gripper_pos)}
+                ${createDataRow('Impedance Running', data.impedance_running)}
+                ${createDataRow('Reset Joint Target', data.reset_joint_target)}
+            `;
+            document.getElementById('system-data').innerHTML = systemHtml;
+
+            // Update timestamp
+            const now = new Date();
+            document.getElementById('last-update').textContent = `Last update: ${now.toLocaleTimeString()}`;
+        }
+
+        async function fetchData() {
+            try {
+                const response = await fetch('/get_all_data');
+                if (response.ok) {
+                    const data = await response.json();
+                    updateDisplay(data);
+                    updateConnectionStatus(true);
+                } else {
+                    updateConnectionStatus(false);
+                }
+            } catch (error) {
+                console.error('Error fetching data:', error);
+                updateConnectionStatus(false);
+            }
+        }
+
+        async function sendCommand(endpoint) {
+            try {
+                const response = await fetch(endpoint, { method: 'POST' });
+                const result = await response.text();
+                console.log(`${endpoint}: ${result}`);
+                // Immediately fetch new data after command
+                setTimeout(fetchData, 100);
+            } catch (error) {
+                console.error(`Error sending command to ${endpoint}:`, error);
+            }
+        }
+
+        async function moveGripper() {
+            const pos = document.getElementById('gripper-pos').value;
+            try {
+                const response = await fetch('/move_gripper', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ gripper_pos: parseInt(pos) })
+                });
+                const result = await response.text();
+                console.log(`Move gripper: ${result}`);
+                setTimeout(fetchData, 100);
+            } catch (error) {
+                console.error('Error moving gripper:', error);
+            }
+        }
+
+        async function moveToPose() {
+            const pose = [
+                parseFloat(document.getElementById('pose-x').value) || 0,
+                parseFloat(document.getElementById('pose-y').value) || 0,
+                parseFloat(document.getElementById('pose-z').value) || 0,
+                parseFloat(document.getElementById('pose-qx').value) || 0,
+                parseFloat(document.getElementById('pose-qy').value) || 0,
+                parseFloat(document.getElementById('pose-qz').value) || 0,
+                parseFloat(document.getElementById('pose-qw').value) || 1
+            ];
+            
+            try {
+                const response = await fetch('/pose', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ arr: pose })
+                });
+                const result = await response.text();
+                console.log(`Move to pose: ${result}`);
+                setTimeout(fetchData, 100);
+            } catch (error) {
+                console.error('Error moving to pose:', error);
+            }
+        }
+
+        // Start updating data every 100ms
+        function startUpdating() {
+            fetchData(); // Initial fetch
+            updateInterval = setInterval(fetchData, 100);
+        }
+
+        // Initialize when page loads
+        window.addEventListener('load', startUpdating);
+    </script>
+</body>
+</html> 

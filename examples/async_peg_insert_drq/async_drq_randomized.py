@@ -32,6 +32,7 @@ from franka_env.envs.relative_env import RelativeFrame
 from franka_env.envs.wrappers import (
     GripperCloseEnv,
     SpacemouseIntervention,
+    AVPIntervention,
     Quat2EulerWrapper,
 )
 
@@ -46,6 +47,8 @@ flags.DEFINE_integer("max_traj_length", 100, "Maximum length of trajectory.")
 flags.DEFINE_integer("seed", 42, "Random seed.")
 flags.DEFINE_bool("save_model", False, "Whether to save model.")
 flags.DEFINE_integer("critic_actor_ratio", 4, "critic to actor update ratio.")
+
+flags.DEFINE_integer("batch_size", 128, "Batch size.")
 
 flags.DEFINE_integer("max_steps", 1000000, "Maximum number of training steps.")
 flags.DEFINE_integer("replay_buffer_capacity", 200000, "Replay buffer capacity.")
@@ -79,6 +82,7 @@ flags.DEFINE_boolean(
 
 devices = jax.local_devices()
 num_devices = len(devices)
+print(f"num_devices: {num_devices}")
 sharding = jax.sharding.PositionalSharding(devices)
 
 
@@ -326,7 +330,7 @@ def main(_):
     )
     env = GripperCloseEnv(env)
     if FLAGS.actor:
-        env = SpacemouseIntervention(env)
+        env = AVPIntervention(env)
     env = RelativeFrame(env)
     env = Quat2EulerWrapper(env)
     env = SERLObsWrapper(env)

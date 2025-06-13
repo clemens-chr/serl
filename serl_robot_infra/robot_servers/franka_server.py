@@ -2,7 +2,7 @@
 This file starts a control server running on the real time PC connected to the franka robot.
 In a screen run `python franka_server.py`
 """
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template_string
 import numpy as np
 import rospy
 import time
@@ -42,6 +42,17 @@ class FrankaServer:
         self.reset_joint_target = reset_joint_target
         self.gripper_type = gripper_type
 
+        # Initialize all member variables
+        self.pos = np.zeros(7)  # [x, y, z, qx, qy, qz, qw]
+        self.vel = np.zeros(6)  # [vx, vy, vz, wx, wy, wz]
+        self.force = np.zeros(3)  # [fx, fy, fz]
+        self.torque = np.zeros(3)  # [tx, ty, tz]
+        self.q = np.zeros(7)  # joint positions
+        self.dq = np.zeros(7)  # joint velocities
+        self.jacobian = np.zeros((6, 7))  # jacobian matrix
+        self.impedance_running = False
+        self.last_update_time = time.time()
+
         self.eepub = rospy.Publisher(
             "/cartesian_impedance_controller/equilibrium_pose",
             geom_msg.PoseStamped,
@@ -59,6 +70,23 @@ class FrankaServer:
             "franka_state_controller/franka_states", FrankaState, self._set_currpos
         )
 
+    def get_all_data(self):
+        """Returns all robot data as a dictionary"""
+        return {
+            "pos": self.pos.tolist(),
+            "vel": self.vel.tolist(),
+            "force": self.force.tolist(),
+            "torque": self.torque.tolist(),
+            "q": self.q.tolist(),
+            "dq": self.dq.tolist(),
+            "jacobian": self.jacobian.tolist(),
+            "impedance_running": self.impedance_running,
+            "last_update_time": self.last_update_time,
+            "robot_ip": self.robot_ip,
+            "gripper_type": self.gripper_type,
+            "reset_joint_target": self.reset_joint_target
+        }
+
     def start_impedance(self):
         """Launches the impedance controller"""
         self.imp = subprocess.Popen(
@@ -71,11 +99,13 @@ class FrankaServer:
             ],
             stdout=subprocess.PIPE,
         )
+        self.impedance_running = True
         time.sleep(5)
 
     def stop_impedance(self):
         """Stops the impedance controller"""
         self.imp.terminate()
+        self.impedance_running = False
         time.sleep(1)
 
     def clear(self):
@@ -158,6 +188,7 @@ class FrankaServer:
         self.q = np.array(list(msg.q)).reshape((7,))
         self.force = np.array(list(msg.K_F_ext_hat_K)[:3])
         self.torque = np.array(list(msg.K_F_ext_hat_K)[3:])
+        self.last_update_time = time.time()
         try:
             self.vel = self.jacobian @ self.dq
         except:
@@ -202,7 +233,7 @@ def main(_):
 
         gripper_server = FrankaGripperServer()
     elif GRIPPER_TYPE == "None":
-        pass
+        gripper_server = None
     else:
         raise NotImplementedError("Gripper Type Not Implemented")
 
@@ -218,6 +249,21 @@ def main(_):
     reconf_client = ReconfClient(
         "cartesian_impedance_controllerdynamic_reconfigure_compliance_param_node"
     )
+
+    # Route for web interface
+    @webapp.route("/", methods=["GET"])
+    def web_interface():
+        return render_template_string(open('robot_monitor.html').read())
+
+    # Route for getting all data
+    @webapp.route("/get_all_data", methods=["GET"])
+    def get_all_data():
+        data = robot_server.get_all_data()
+        if gripper_server:
+            data["gripper_pos"] = gripper_server.gripper_pos
+        else:
+            data["gripper_pos"] = "N/A"
+        return jsonify(data)
 
     # Route for Starting impedance
     @webapp.route("/startimp", methods=["POST"])
@@ -270,7 +316,10 @@ def main(_):
     # Route for getting gripper distance
     @webapp.route("/get_gripper", methods=["POST"])
     def get_gripper():
-        return jsonify({"gripper": gripper_server.gripper_pos})
+        if gripper_server:
+            return jsonify({"gripper": gripper_server.gripper_pos})
+        else:
+            return jsonify({"gripper": "N/A"})
 
     # Route for Running Joint Reset
     @webapp.route("/jointreset", methods=["POST"])
@@ -282,39 +331,54 @@ def main(_):
     # Route for Activating the Gripper
     @webapp.route("/activate_gripper", methods=["POST"])
     def activate_gripper():
-        print("activate gripper")
-        gripper_server.activate_gripper()
-        return "Activated"
+        if gripper_server:
+            print("activate gripper")
+            gripper_server.activate_gripper()
+            return "Activated"
+        else:
+            return "No gripper available"
 
     # Route for Resetting the Gripper. It will reset and activate the gripper
     @webapp.route("/reset_gripper", methods=["POST"])
     def reset_gripper():
-        print("reset gripper")
-        gripper_server.reset_gripper()
-        return "Reset"
+        if gripper_server:
+            print("reset gripper")
+            gripper_server.reset_gripper()
+            return "Reset"
+        else:
+            return "No gripper available"
 
     # Route for Opening the Gripper
     @webapp.route("/open_gripper", methods=["POST"])
     def open():
-        print("open")
-        gripper_server.open()
-        return "Opened"
+        if gripper_server:
+            print("open")
+            gripper_server.open()
+            return "Opened"
+        else:
+            return "No gripper available"
 
     # Route for Closing the Gripper
     @webapp.route("/close_gripper", methods=["POST"])
     def close():
-        print("close")
-        gripper_server.close()
-        return "Closed"
+        if gripper_server:
+            print("close")
+            gripper_server.close()
+            return "Closed"
+        else:
+            return "No gripper available"
 
     # Route for moving the gripper
     @webapp.route("/move_gripper", methods=["POST"])
     def move_gripper():
-        gripper_pos = request.json
-        pos = np.clip(int(gripper_pos["gripper_pos"]), 0, 255)  # 0-255
-        print(f"move gripper to {pos}")
-        gripper_server.move(pos)
-        return "Moved Gripper"
+        if gripper_server:
+            gripper_pos = request.json
+            pos = np.clip(int(gripper_pos["gripper_pos"]), 0, 255)  # 0-255
+            print(f"move gripper to {pos}")
+            gripper_server.move(pos)
+            return "Moved Gripper"
+        else:
+            return "No gripper available"
 
     # Route for Clearing Errors (Communcation constraints, etc.)
     @webapp.route("/clearerr", methods=["POST"])
@@ -342,7 +406,7 @@ def main(_):
                 "q": np.array(robot_server.q).tolist(),
                 "dq": np.array(robot_server.dq).tolist(),
                 "jacobian": np.array(robot_server.jacobian).tolist(),
-                "gripper_pos": gripper_server.gripper_pos,
+                "gripper_pos": gripper_server.gripper_pos if gripper_server else "N/A",
             }
         )
 

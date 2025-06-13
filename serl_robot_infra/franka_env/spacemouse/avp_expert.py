@@ -6,7 +6,7 @@ import scipy.spatial.transform
 from typing import Tuple
 from dataclasses import dataclass
 from scipy.spatial.transform import Rotation # Import Rotation
-from orca_core import OrcaHand, Retargeter
+from orca_core import OrcaHand
 
 
 class AVPExpert:

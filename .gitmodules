@@ -1,0 +1,3 @@
+[submodule "franka_sim/franka_sim/envs/xmls/orcahand_description"]
+	path = franka_sim/franka_sim/envs/xmls/orcahand_description
+	url = git@github.com:orcahand/orcahand_description.git
