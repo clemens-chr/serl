@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Franka Robot Monitor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Franka Robot Monitor</h1>
+            <span>Status: <span id="connection-status" class="status disconnected">Disconnected</span></span>
+            <span class="last-update" id="last-update">Last update: Never</span>
+        </div>
+
+        <!-- Response/Error Display Panel -->
+        <div class="panel response-panel">
+            <h3>Server Response</h3>
+            <div id="response-display" class="response-display">
+                Ready to receive commands...
+            </div>
+        </div>
+
+        <div class="grid">
+            <div class="panel controls">
+                <h3>Robot Controls</h3>
+                
+                <h4>Impedance Control</h4>
+                <div class="button-group">
+                    <button class="btn-success" onclick="sendCommand('/startimp')">Start Impedance</button>
+                    <button class="btn-danger" onclick="sendCommand('/stopimp')">Stop Impedance</button>
+                    <button class="btn-warning" onclick="sendCommand('/clearerr')">Clear Errors</button>
+                    <button class="btn-primary" onclick="sendCommand('/jointreset')">Reset Joints</button>
+                </div>
+
+                <h4>Move to Pose</h4>
+                <div class="pose-controls">
+                    <div class="pose-slider-group">
+                        <label>X Position:</label>
+                        <input type="range" id="xSlider" min="-1" max="1" step="0.001" value="0" oninput="updatePoseDisplay()">
+                        <span id="xValue">0.000</span>
+                    </div>
+                    <div class="pose-slider-group">
+                        <label>Y Position:</label>
+                        <input type="range" id="ySlider" min="-1" max="1" step="0.001" value="0" oninput="updatePoseDisplay()">
+                        <span id="yValue">0.000</span>
+                    </div>
+                    <div class="pose-slider-group">
+                        <label>Z Position:</label>
+                        <input type="range" id="zSlider" min="0" max="1.5" step="0.001" value="0.5" oninput="updatePoseDisplay()">
+                        <span id="zValue">0.500</span>
+                    </div>
+                    <div class="pose-slider-group">
+                        <label>QX Orientation:</label>
+                        <input type="range" id="qxSlider" min="-1" max="1" step="0.001" value="0" oninput="updatePoseDisplay()">
+                        <span id="qxValue">0.000</span>
+                    </div>
+                    <div class="pose-slider-group">
+                        <label>QY Orientation:</label>
+                        <input type="range" id="qySlider" min="-1" max="1" step="0.001" value="0" oninput="updatePoseDisplay()">
+                        <span id="qyValue">0.000</span>
+                    </div>
+                    <div class="pose-slider-group">
+                        <label>QZ Orientation:</label>
+                        <input type="range" id="qzSlider" min="-1" max="1" step="0.001" value="0" oninput="updatePoseDisplay()">
+                        <span id="qzValue">0.000</span>
+                    </div>
+                    <div class="pose-slider-group">
+                        <label>QW Orientation:</label>
+                        <input type="range" id="qwSlider" min="-1" max="1" step="0.001" value="1" oninput="updatePoseDisplay()">
+                        <span id="qwValue">1.000</span>
+                    </div>
+                </div>
+                <div class="pose-buttons">
+                    <button class="btn-info" onclick="loadCurrentPose()">Load Current Pose</button>
+                    <button class="btn-primary" onclick="moveToPose()">Move to Pose</button>
+                </div>
+
+                <h4>Gripper Controls</h4>
+                <div class="button-group">
+                    <button class="btn-success" onclick="sendCommand('/activate_gripper')">Activate Gripper</button>
+                    <button class="btn-primary" onclick="sendCommand('/open_gripper')">Open Gripper</button>
+                    <button class="btn-primary" onclick="sendCommand('/close_gripper')">Close Gripper</button>
+                    <button class="btn-warning" onclick="sendCommand('/reset_gripper')">Reset Gripper</button>
+                    <button class="btn-info" onclick="sendDataCommand('/get_gripper')">Get Gripper State</button>
+                </div>
+
+                <div class="input-group">
+                    <label>Gripper Position (0-255):</label>
+                    <input type="number" id="gripper-pos" min="0" max="255" value="128">
+                    <button class="btn-primary" onclick="moveGripper()">Move Gripper</button>
+                </div>
+
+                <h4>Compliance Parameters</h4>
+                <div class="compliance-inputs">
+                    <div class="input-group">
+                        <label>Translational Stiffness:</label>
+                        <input type="number" id="trans-stiffness" step="1" value="3000" placeholder="3000">
+                    </div>
+                    <div class="input-group">
+                        <label>Rotational Stiffness:</label>
+                        <input type="number" id="rot-stiffness" step="1" value="300" placeholder="300">
+                    </div>
+                    <button class="btn-primary" onclick="updateComplianceParams()">Update Parameters</button>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h3>Robot Position & Orientation</h3>
+                <div id="position-data"></div>
+                <div class="button-group">
+                    <button class="btn-info" onclick="sendDataCommand('/getpos')">Get Position</button>
+                    <button class="btn-info" onclick="sendDataCommand('/getpos_euler')">Get Position (Euler)</button>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h3>Velocity & Forces</h3>
+                <div id="velocity-data"></div>
+                <div class="button-group">
+                    <button class="btn-info" onclick="sendDataCommand('/getvel')">Get Velocity</button>
+                    <button class="btn-info" onclick="sendDataCommand('/getforce')">Get Force</button>
+                    <button class="btn-info" onclick="sendDataCommand('/gettorque')">Get Torque</button>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h3>Joint States</h3>
+                <div id="joint-data"></div>
+                <div class="button-group">
+                    <button class="btn-info" onclick="sendDataCommand('/getq')">Get Joint Positions</button>
+                    <button class="btn-info" onclick="sendDataCommand('/getdq')">Get Joint Velocities</button>
+                    <button class="btn-info" onclick="sendDataCommand('/getjacobian')">Get Jacobian</button>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h3>System Info</h3>
+                <div id="system-data"></div>
+                <div class="button-group">
+                    <button class="btn-info" onclick="sendDataCommand('/get_all_data')">Get All Data</button>
+                    <button class="btn-info" onclick="sendDataCommand('/getstate')">Get State</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- API Endpoints Panel -->
+        <div class="panel">
+            <h3>All Available Endpoints</h3>
+            <div class="endpoints-grid">
+                <div class="endpoint-category">
+                    <h4>Data Retrieval (GET/POST)</h4>
+                    <div class="button-group">
+                        <button class="btn-info" onclick="sendDataCommand('/get_all_data')">GET /get_all_data</button>
+                        <button class="btn-info" onclick="sendDataCommand('/getpos')">POST /getpos</button>
+                        <button class="btn-info" onclick="sendDataCommand('/getpos_euler')">POST /getpos_euler</button>
+                        <button class="btn-info" onclick="sendDataCommand('/getvel')">POST /getvel</button>
+                        <button class="btn-info" onclick="sendDataCommand('/getforce')">POST /getforce</button>
+                        <button class="btn-info" onclick="sendDataCommand('/gettorque')">POST /gettorque</button>
+                        <button class="btn-info" onclick="sendDataCommand('/getq')">POST /getq</button>
+                        <button class="btn-info" onclick="sendDataCommand('/getdq')">POST /getdq</button>
+                        <button class="btn-info" onclick="sendDataCommand('/getjacobian')">POST /getjacobian</button>
+                        <button class="btn-info" onclick="sendDataCommand('/get_gripper')">POST /get_gripper</button>
+                        <button class="btn-info" onclick="sendDataCommand('/getstate')">POST /getstate</button>
+                    </div>
+                </div>
+                
+                <div class="endpoint-category">
+                    <h4>Robot Control (POST)</h4>
+                    <div class="button-group">
+                        <button class="btn-success" onclick="sendCommand('/startimp')">POST /startimp</button>
+                        <button class="btn-danger" onclick="sendCommand('/stopimp')">POST /stopimp</button>
+                        <button class="btn-warning" onclick="sendCommand('/clearerr')">POST /clearerr</button>
+                        <button class="btn-primary" onclick="sendCommand('/jointreset')">POST /jointreset</button>
+                    </div>
+                </div>
+                
+                <div class="endpoint-category">
+                    <h4>Gripper Control (POST)</h4>
+                    <div class="button-group">
+                        <button class="btn-success" onclick="sendCommand('/activate_gripper')">POST /activate_gripper</button>
+                        <button class="btn-primary" onclick="sendCommand('/open_gripper')">POST /open_gripper</button>
+                        <button class="btn-primary" onclick="sendCommand('/close_gripper')">POST /close_gripper</button>
+                        <button class="btn-warning" onclick="sendCommand('/reset_gripper')">POST /reset_gripper</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/robot_monitor.js') }}"></script>
+</body>
+</html> 
