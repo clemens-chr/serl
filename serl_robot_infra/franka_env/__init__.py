@@ -30,3 +30,15 @@ register(
     entry_point="franka_env.envs.bin_relocation_env:FrankaBinRelocation",
     max_episode_steps=100,
 )
+
+register(
+    id="FrankaCubeRelocation-Vision-v0",
+    entry_point="franka_env.envs.cube_relocation_env:FrankaCubeRelocation",
+    max_episode_steps=100,
+)
+
+register(
+    id="OrcaCubePick-Vision-v0",
+    entry_point="franka_env.envs.orca_cube_pick_env:OrcaCubePick",
+    max_episode_steps=100,
+)

@@ -1,0 +1,1 @@
+from franka_env.envs.cube_relocation_env.franka_cube_relocation import FrankaCubeRelocation

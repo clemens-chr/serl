@@ -11,11 +11,11 @@ import threading
 from datetime import datetime
 from collections import OrderedDict
 from typing import Dict
+import os
 
 from franka_env.camera.video_capture import VideoCapture
 from franka_env.camera.rs_capture import RSCapture
 from franka_env.utils.rotations import euler_2_quat, quat_2_euler
-
 
 class ImageDisplayer(threading.Thread):
     def __init__(self, queue):
@@ -59,7 +59,7 @@ class DefaultEnvConfig:
     ABS_POSE_LIMIT_LOW = np.zeros((6,))
     COMPLIANCE_PARAM: Dict[str, float] = {}
     PRECISION_PARAM: Dict[str, float] = {}
-    BINARY_GRIPPER_THREASHOLD: float = 0.5
+    BINARY_GRIPPER_THREASHOLD: float = 0.0
     APPLY_GRIPPER_PENALTY: bool = True
     GRIPPER_PENALTY: float = 0.1
 
@@ -89,6 +89,7 @@ class FrankaEnv(gym.Env):
         )
 
         self.currpos = self.resetpos.copy()
+        self.currpose_euler = np.zeros((6,))
         self.currvel = np.zeros((6,))
         self.q = np.zeros((7,))
         self.dq = np.zeros((7,))
@@ -96,9 +97,15 @@ class FrankaEnv(gym.Env):
         self.currtorque = np.zeros((3,))
         self.currjacobian = np.zeros((6, 7))
 
-        self.curr_gripper_pos = 0
+        self.curr_gripper_pos = 0.08
         self.gripper_binary_state = 0  # 0 for open, 1 for closed
         self.lastsent = time.time()
+        
+        # Gripper cooldown functionality (temporary flag for testing)
+        self.gripper_cooldown_enabled = True  # Set to False to disable
+        self.last_gripper_state_change = time.time()
+        self.gripper_cooldown_duration = 5.0  # 5 seconds cooldown
+        
         self.randomreset = config.RANDOM_RESET
         self.random_xy_range = config.RANDOM_XY_RANGE
         self.random_rz_range = config.RANDOM_RZ_RANGE
@@ -145,7 +152,7 @@ class FrankaEnv(gym.Env):
                         "wrist_1": gym.spaces.Box(
                             0, 255, shape=(128, 128, 3), dtype=np.uint8
                         ),
-                        "wrist_2": gym.spaces.Box(
+                        "front": gym.spaces.Box(
                             0, 255, shape=(128, 128, 3), dtype=np.uint8
                         ),
                     }
@@ -162,6 +169,8 @@ class FrankaEnv(gym.Env):
         self.img_queue = queue.Queue()
         self.displayer = ImageDisplayer(self.img_queue)
         self.displayer.start()
+        
+    
         print("Initialized Franka")
 
     def clip_safety_box(self, pose: np.ndarray) -> np.ndarray:
@@ -169,6 +178,10 @@ class FrankaEnv(gym.Env):
         pose[:3] = np.clip(
             pose[:3], self.xyz_bounding_box.low, self.xyz_bounding_box.high
         )
+        if np.any(pose[:3] != np.clip(pose[:3], self.xyz_bounding_box.low, self.xyz_bounding_box.high)):
+            print("Position was clipped to safety box bounds")
+        
+        
         euler = Rotation.from_quat(pose[3:]).as_euler("xyz")
 
         # Clip first euler angle separately due to discontinuity from pi to -pi
@@ -193,6 +206,8 @@ class FrankaEnv(gym.Env):
         start_time = time.time()
         action = np.clip(action, self.action_space.low, self.action_space.high)
         xyz_delta = action[:3]
+        gripper_action = action[6]
+        
 
         self.nextpos = self.currpos.copy()
         self.nextpos[:3] = self.nextpos[:3] + xyz_delta * self.action_scale[0]
@@ -203,9 +218,18 @@ class FrankaEnv(gym.Env):
             * Rotation.from_quat(self.currpos[3:])
         ).as_quat()
 
-        gripper_action = action[6] * self.action_scale[2]
-
+        
+        # Scale gripper delta from [-1, 1] to [0, 255] where 0 is closed and 255 is open
+        #gripper_action_effective = float(self.curr_gripper_pos*255/0.08 + gripper_delta*255)
+        
+        # print(f'gripper_action_effective: {gripper_action_effective}')
+        # print(f'gripper_delta: {gripper_delta}')
+        # print(f'self.curr_gripper_pos: {self.curr_gripper_pos}')
+        
+        print(f'gripper_action: {gripper_action}')
         gripper_action_effective = self._send_gripper_command(gripper_action)
+        if not np.array_equal(self.clip_safety_box(self.nextpos), self.nextpos):
+            print(f'CLIPPING OCCURED: {self.nextpos}')
         self._send_pos_command(self.clip_safety_box(self.nextpos))
 
         self.curr_path_length += 1
@@ -214,34 +238,53 @@ class FrankaEnv(gym.Env):
 
         self._update_currpos()
         ob = self._get_obs()
-        reward = self.compute_reward(ob, gripper_action_effective)
+        reward = self.compute_reward(ob)
         done = self.curr_path_length >= self.max_episode_length or reward == 1
         return ob, reward, done, False, {}
 
-    def compute_reward(self, obs, gripper_action_effective) -> bool:
-        """We are using a sparse reward function."""
+
+    def compute_reward(self, obs) -> float:
+        """We are using a sparse or dense reward function."""
+   
+    
+        reward_type = 'sparse'
+        
         current_pose = obs["state"]["tcp_pose"]
-        # convert from quat to euler first
         euler_angles = quat_2_euler(current_pose[3:])
-        euler_angles = np.abs(euler_angles)
+        # euler_angles = np.abs(euler_angles)
         current_pose = np.hstack([current_pose[:3], euler_angles])
         delta = np.abs(current_pose - self._TARGET_POSE)
-        if np.all(delta < self._REWARD_THRESHOLD):
-            reward = 1
+            
+        if reward_type == 'dense':
+            if np.all(delta < self._REWARD_THRESHOLD):
+                reward = 1  
+            else:
+                decay_rate = 10  
+                reward = np.exp(-decay_rate * np.sum(delta))  
+                reward = np.clip(reward, 0, 1)  
+                
+        elif reward_type == 'sparse':
+           
+            if np.all(delta < self._REWARD_THRESHOLD):
+                reward = 1
+            else:
+                reward = 0
         else:
-            # print(f'Goal not reached, the difference is {delta}, the desired threshold is {_REWARD_THRESHOLD}')
-            reward = 0
+            raise ValueError(f"Invalid reward type: {reward_type}")
 
-        if self.config.APPLY_GRIPPER_PENALTY and gripper_action_effective:
+        if self.config.APPLY_GRIPPER_PENALTY and False:
             reward -= self.config.GRIPPER_PENALTY
+            
+        print(f'Reward: {reward}')
 
+       # print(f'Reward: {reward} for type: {reward_type}')
         return reward
 
     def crop_image(self, name, image) -> np.ndarray:
         """Crop realsense images to be a square."""
-        if name == "wrist_1":
+        if name.startswith("wrist"):
             return image[:, 80:560, :]
-        elif name == "wrist_2":
+        elif name.startswith("front"):
             return image[:, 80:560, :]
         else:
             return ValueError(f"Camera {name} not recognized in cropping")
@@ -250,9 +293,14 @@ class FrankaEnv(gym.Env):
         """Get images from the realsense cameras."""
         images = {}
         display_images = {}
+        
+        sgms_images = {}
+        
         for key, cap in self.cap.items():
             try:
                 rgb = cap.read()
+                sgm = cap.read_segmentation()
+                
                 cropped_rgb = self.crop_image(key, rgb)
                 resized = cv2.resize(
                     cropped_rgb, self.observation_space["images"][key].shape[:2][::-1]
@@ -260,6 +308,14 @@ class FrankaEnv(gym.Env):
                 images[key] = resized[..., ::-1]
                 display_images[key] = resized
                 display_images[key + "_full"] = cropped_rgb
+                
+                if sgm is not None:
+                    cropped_sgm = self.crop_image(key, sgm)
+                    resized_sgm = cv2.resize(cropped_sgm, self.observation_space["images"][key].shape[:2][::-1])
+                    display_images[key + "_sgm"] = resized_sgm
+                    display_images[key + "_sgm_full"] = cropped_sgm
+                                    
+                
             except queue.Empty:
                 input(
                     f"{key} camera frozen. Check connect, then press enter to relaunch..."
@@ -271,8 +327,23 @@ class FrankaEnv(gym.Env):
         self.recording_frames.append(
             np.concatenate([display_images[f"{k}_full"] for k in self.cap], axis=0)
         )
+        
+        # # Make all images black
+        # for key in images:
+        #     images[key] = np.zeros_like(images[key])
+        # for key in display_images:
+        #     display_images[key] = np.zeros_like(display_images[key])
+        
         self.img_queue.put(display_images)
+                
         return images
+    
+    def get_sgm(self) -> Dict[str, np.ndarray]:
+        """Get segmentation masks from the realsense cameras."""
+        sgm = self.cap["front"].read_segmentation()
+        if sgm is not None:
+            cv2.imwrite(f'./sgm.png', sgm)
+        return sgm
 
     def interpolate_move(self, goal: np.ndarray, timeout: float):
         """Move the robot to the goal position with linear interpolation."""
@@ -296,7 +367,6 @@ class FrankaEnv(gym.Env):
 
         # Perform joint reset if needed
         if joint_reset:
-            print("JOINT RESET")
             requests.post(self.url + "jointreset")
             time.sleep(0.5)
 
@@ -361,8 +431,14 @@ class FrankaEnv(gym.Env):
 
         self.cap = OrderedDict()
         for cam_name, cam_serial in name_serial_dict.items():
+            server_url = None
+            if cam_name == "front":
+                server_url = "ws://localhost:8765"
+                
             cap = VideoCapture(
-                RSCapture(name=cam_name, serial_number=cam_serial, depth=False)
+                RSCapture(name=cam_name, serial_number=cam_serial, depth=False, dummy_mode=False),
+                name=cam_name,
+                server_url_segment=server_url
             )
             self.cap[cam_name] = cap
 
@@ -383,31 +459,50 @@ class FrankaEnv(gym.Env):
         self._recover()
         arr = np.array(pos).astype(np.float32)
         data = {"arr": arr.tolist()}
+    #    print(f'LAST ACTION: {arr[:3]}')
         requests.post(self.url + "pose", json=data)
 
     def _send_gripper_command(self, pos: float, mode="binary"):
         """Internal function to send gripper command to the robot."""
+        
         if mode == "binary":
+            # Check if gripper cooldown is enabled and if enough time has passed
+            if self.gripper_cooldown_enabled:
+                current_time = time.time()
+                time_since_last_change = current_time - self.last_gripper_state_change
+                
+                if time_since_last_change < self.gripper_cooldown_duration:
+                    print(f"Gripper cooldown active: {self.gripper_cooldown_duration - time_since_last_change:.1f}s remaining")
+                    return False
+            
             if (
-                pos <= -self.config.BINARY_GRIPPER_THREASHOLD
+                pos < self.config.BINARY_GRIPPER_THREASHOLD
                 and self.gripper_binary_state == 0
             ):  # close gripper
                 requests.post(self.url + "close_gripper")
+                print("Closed gripper")
                 time.sleep(0.6)
                 self.gripper_binary_state = 1
+                if self.gripper_cooldown_enabled:
+                    self.last_gripper_state_change = time.time()
                 return True
             elif (
-                pos >= self.config.BINARY_GRIPPER_THREASHOLD
+                pos > self.config.BINARY_GRIPPER_THREASHOLD
                 and self.gripper_binary_state == 1
             ):  # open gripper
                 requests.post(self.url + "open_gripper")
+                print("Opened gripper")
                 time.sleep(0.6)
                 self.gripper_binary_state = 0
+                if self.gripper_cooldown_enabled:
+                    self.last_gripper_state_change = time.time()
                 return True
             else:  # do nothing to the gripper
                 return False
         elif mode == "continuous":
-            raise NotImplementedError("Continuous gripper control is optional")
+            print(f'Sending continuous gripper command: {pos}')
+            requests.post(self.url + "move_gripper", json={"gripper_pos": pos})
+            return True
 
     def _update_currpos(self):
         """
@@ -415,6 +510,7 @@ class FrankaEnv(gym.Env):
         """
         ps = requests.post(self.url + "getstate").json()
         self.currpos[:] = np.array(ps["pose"])
+        self.currpose_euler[:] = ps['pose_euler']
         self.currvel[:] = np.array(ps["vel"])
 
         self.currforce[:] = np.array(ps["force"])
@@ -425,6 +521,7 @@ class FrankaEnv(gym.Env):
         self.dq[:] = np.array(ps["dq"])
 
         self.curr_gripper_pos = np.array(ps["gripper_pos"])
+
 
     def _get_obs(self) -> dict:
         images = self.get_im()

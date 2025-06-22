@@ -8,9 +8,8 @@ import numpy as np
 import tqdm
 from absl import app, flags
 from flax.training import checkpoints
-import os
-import glob
-import pickle as pkl
+from copy import deepcopy
+from collections import OrderedDict
 
 import gym
 from gym.wrappers.record_episode_statistics import RecordEpisodeStatistics
@@ -31,27 +30,26 @@ from serl_launcher.utils.launcher import (
 )
 from serl_launcher.data.data_store import MemoryEfficientReplayBufferDataStore
 from serl_launcher.wrappers.serl_obs_wrappers import SERLObsWrapper
+from serl_launcher.wrappers.front_camera_wrapper import FrontCameraWrapper
 from franka_env.envs.relative_env import RelativeFrame
 from franka_env.envs.wrappers import (
-    GripperCloseEnv,
-    SpacemouseIntervention,
     AVPIntervention,
     Quat2EulerWrapper,
+    FWBWFrontCameraBinarySegmentationRewardClassifierWrapper,
 )
 
 import franka_env
 
 FLAGS = flags.FLAGS
 
-flags.DEFINE_string("env", "FrankaEnv-Vision-v0", "Name of environment.")
+flags.DEFINE_string("env", "FrankaRobotiq-Vision-v0", "Name of environment.")
 flags.DEFINE_string("agent", "drq", "Name of agent.")
 flags.DEFINE_string("exp_name", None, "Name of the experiment for wandb logging.")
 flags.DEFINE_integer("max_traj_length", 100, "Maximum length of trajectory.")
 flags.DEFINE_integer("seed", 42, "Random seed.")
 flags.DEFINE_bool("save_model", False, "Whether to save model.")
+flags.DEFINE_integer("batch_size", 256, "Batch size.")
 flags.DEFINE_integer("critic_actor_ratio", 4, "critic to actor update ratio.")
-
-flags.DEFINE_integer("batch_size", 128, "Batch size.")
 
 flags.DEFINE_integer("max_steps", 1000000, "Maximum number of training steps.")
 flags.DEFINE_integer("replay_buffer_capacity", 200000, "Replay buffer capacity.")
@@ -78,6 +76,23 @@ flags.DEFINE_integer(
     "eval_checkpoint_step", 0, "evaluate the policy from ckpt at this step"
 )
 flags.DEFINE_integer("eval_n_trajs", 5, "Number of trajectories for evaluation.")
+flags.DEFINE_string("fwbw", "fw", "forward or backward task")
+
+# Checkpoints paths
+flags.DEFINE_string("fw_ckpt_path", None, "Path to the fw checkpoint.")
+flags.DEFINE_string("bw_ckpt_path", None, "Path to the bw checkpoint.")
+
+# this is only used in actor node
+flags.DEFINE_string(
+    "fw_reward_classifier_ckpt_path",
+    None,
+    "Path to the fw reward classifier checkpoint.",
+)
+flags.DEFINE_string(
+    "bw_reward_classifier_ckpt_path",
+    None,
+    "Path to the bw reward classifier checkpoint.",
+)
 
 flags.DEFINE_boolean(
     "debug", False, "Debug mode."
@@ -85,8 +100,13 @@ flags.DEFINE_boolean(
 
 devices = jax.local_devices()
 num_devices = len(devices)
-print(f"num_devices: {num_devices}")
 sharding = jax.sharding.PositionalSharding(devices)
+
+id_to_task = {0: "fw", 1: "bw"}
+TrainerPortMapping = {
+    "fw": {"port_number": 6678, "broadcast_port": 6679},
+    "bw": {"port_number": 6690, "broadcast_port": 6691},
+}
 
 
 def print_green(x):
@@ -96,64 +116,92 @@ def print_green(x):
 ##############################################################################
 
 
-def actor(agent: DrQAgent, data_store, env, sampling_rng):
+def actor(
+    agents: OrderedDict[str, DrQAgent],
+    data_stores: OrderedDict[str, MemoryEfficientReplayBufferDataStore],
+    env,
+    sampling_rng,
+):
     """
     This is the actor loop, which runs when "--actor" is set to True.
     """
     if FLAGS.eval_checkpoint_step:
-        success_counter = 0
-        time_list = []
+        for task in agents.keys():
+            ckpt = checkpoints.restore_checkpoint(
+                FLAGS.fw_ckpt_path if task == "fw" else FLAGS.bw_ckpt_path,
+                agents[task].state,
+                step=FLAGS.eval_checkpoint_step,
+            )
+            agents[task] = agents[task].replace(state=ckpt)
 
-        ckpt = checkpoints.restore_checkpoint(
-            FLAGS.checkpoint_path,
-            agent.state,
-            step=FLAGS.eval_checkpoint_step,
-        )
-        agent = agent.replace(state=ckpt)
+        success_count = {"fw": 0, "bw": 0}
+        overall_success_count = 0
+        cycle_time = {"fw": [], "bw": []}
 
-        for episode in range(FLAGS.eval_n_trajs):
-            obs, _ = env.reset()
-            done = False
-            start_time = time.time()
-            while not done:
-                actions = agent.sample_actions(
-                    observations=jax.device_put(obs),
-                    argmax=True,
+        for _ in range(FLAGS.eval_n_trajs):
+            for task_id, task_name in id_to_task.items():
+                env.set_task_id(task_id)
+                obs, _ = env.reset()
+                done = False
+
+                start_time = time.time()
+                while not done:
+                    actions = agents[task_name].sample_actions(
+                        observations=jax.device_put(obs),
+                        argmax=True,
+                    )
+                    actions = np.asarray(jax.device_get(actions))
+                    next_obs, reward, done, truncated, info = env.step(actions)
+                    obs = next_obs
+
+                if reward:
+                    dt = time.time() - start_time
+                    cycle_time[task_name].append(dt)
+                    print(f"{task_name}_cycle time: {dt} secs")
+                success_count[task_name] += reward
+                print(reward)
+                print(
+                    f"{task_name}_success count: {success_count[task_name]} out of {FLAGS.eval_n_trajs}"
                 )
-                actions = np.asarray(jax.device_get(actions))
 
-                next_obs, reward, done, truncated, info = env.step(actions)
-                obs = next_obs
+            overall_success_count += reward
+            print(
+                f"overall_success count: {overall_success_count} out of {FLAGS.eval_n_trajs}"
+            )
+            print(f"average fw_cycle time: {np.mean(cycle_time['fw'])} secs")
+            print(f"average bw_cycle time: {np.mean(cycle_time['bw'])} secs")
 
-                if done:
-                    if reward:
-                        dt = time.time() - start_time
-                        time_list.append(dt)
-                        print(dt)
-
-                    success_counter += reward
-                    print(reward)
-                    print(f"{success_counter}/{episode + 1}")
-
-        print(f"success rate: {success_counter / FLAGS.eval_n_trajs}")
-        print(f"average time: {np.mean(time_list)}")
         return  # after done eval, return and exit
 
-    client = TrainerClient(
-        "actor_env",
-        FLAGS.ip,
-        make_trainer_config(),
-        data_store,
-        wait_for_server=True,
-    )
+    clients = {
+        task: TrainerClient(
+            "actor_env",
+            FLAGS.ip,
+            make_trainer_config(**config),
+            data_stores[task],
+            wait_for_server=True,
+        )
+        for task, config in TrainerPortMapping.items()
+    }
 
-    # Function to update the agent with new params
-    def update_params(params):
-        nonlocal agent
-        agent = agent.replace(state=agent.state.replace(params=params))
+    # Function to update the fw agent with new params
+    def update_params_fw(params):
+        nonlocal agents
+        agents["fw"] = agents["fw"].replace(
+            state=agents["fw"].state.replace(params=params)
+        )
 
-    client.recv_network_callback(update_params)
+    # Function to update the bw agent with new params
+    def update_params_bw(params):
+        nonlocal agents
+        agents["bw"] = agents["bw"].replace(
+            state=agents["bw"].state.replace(params=params)
+        )
 
+    clients["fw"].recv_network_callback(update_params_fw)
+    clients["bw"].recv_network_callback(update_params_bw)
+
+    env.set_task_id(0)
     obs, _ = env.reset()
     done = False
 
@@ -161,15 +209,28 @@ def actor(agent: DrQAgent, data_store, env, sampling_rng):
     timer = Timer()
     running_return = 0.0
 
-    for step in tqdm.tqdm(range(FLAGS.max_steps), dynamic_ncols=True):
-        timer.tick("total")
+    step = {"fw": 0, "bw": 0}
 
+    pbars = {
+        v: tqdm.tqdm(
+            total=FLAGS.max_steps,
+            initial=0,
+            desc=f"Training {v} actor",
+            leave=True,
+            dynamic_ncols=True,
+        )
+        for k, v in id_to_task.items()
+    }
+
+    while step["fw"] < FLAGS.max_steps or step["bw"] < FLAGS.max_steps:
+        timer.tick("total")
+        task_name = id_to_task[env.task_id]
         with timer.context("sample_actions"):
-            if step < FLAGS.random_steps:
+            if step[task_name] < FLAGS.random_steps:
                 actions = env.action_space.sample()
             else:
                 sampling_rng, key = jax.random.split(sampling_rng)
-                actions = agent.sample_actions(
+                actions = agents[task_name].sample_actions(
                     observations=jax.device_put(obs),
                     seed=key,
                     deterministic=False,
@@ -179,6 +240,9 @@ def actor(agent: DrQAgent, data_store, env, sampling_rng):
         # Step environment
         with timer.context("step_env"):
             next_obs, reward, done, truncated, info = env.step(actions)
+
+            step[task_name] += 1
+            pbars[task_name].update(1)
 
             # override the action with the intervention action
             if "intervene_action" in info:
@@ -195,23 +259,35 @@ def actor(agent: DrQAgent, data_store, env, sampling_rng):
                 masks=1.0 - done,
                 dones=done,
             )
-            data_store.insert(transition)
+            data_stores[task_name].insert(transition)
 
             obs = next_obs
             if done or truncated:
-                stats = {"train": info}  # send stats to the learner to log
-                client.request("send-stats", stats)
+                next_task_id = env.task_id
+                if reward:
+                    print("cube relocate success!")
+                    next_task_id = (env.task_id + 1) % 2
+
+                print(f"transition from {env.task_id} to next task: {next_task_id}")
+                env.set_task_id(next_task_id)
+
+                stats = {f"{task_name}_train": info}  # send stats to the learner to log
+                stats["env_steps"] = step[task_name]
+                clients[task_name].request("send-stats", stats)
                 running_return = 0.0
+
                 obs, _ = env.reset()
 
-        if step % FLAGS.steps_per_update == 0:
-            client.update()
-
         timer.tock("total")
+        for name, task_step in step.items():
+            if task_step % FLAGS.steps_per_update == 0:
+                clients[name].update()
+            if task_step % FLAGS.log_period == 0:
+                stats = {f"{name}_timer": timer.get_average_times()}
+                clients[name].request("send-stats", stats)
 
-        if step % FLAGS.log_period == 0:
-            stats = {"timer": timer.get_average_times()}
-            client.request("send-stats", stats)
+    for pbar in pbars.values():
+        pbar.close()
 
 
 ##############################################################################
@@ -230,16 +306,23 @@ def learner(rng, agent: DrQAgent, replay_buffer, demo_buffer):
 
     # To track the step in the training loop
     update_steps = 0
+    env_steps = 0
 
     def stats_callback(type: str, payload: dict) -> dict:
         """Callback for when server receives stats request."""
+        nonlocal env_steps
         assert type == "send-stats", f"Invalid request type: {type}"
         if wandb_logger is not None:
+            if "env_steps" in payload:
+                env_steps = payload["env_steps"]
             wandb_logger.log(payload, step=update_steps)
         return {}  # not expecting a response
 
     # Create server
-    server = TrainerServer(make_trainer_config(), request_callback=stats_callback)
+    server = TrainerServer(
+        make_trainer_config(**TrainerPortMapping[FLAGS.fwbw]),
+        request_callback=stats_callback,
+    )
     server.register_data_store("actor_env", replay_buffer)
     server.start(threaded=True)
 
@@ -247,7 +330,7 @@ def learner(rng, agent: DrQAgent, replay_buffer, demo_buffer):
     pbar = tqdm.tqdm(
         total=FLAGS.training_starts,
         initial=len(replay_buffer),
-        desc="Filling up replay buffer",
+        desc=f"Filling up {FLAGS.fwbw} replay buffer",
         position=0,
         leave=True,
     )
@@ -279,7 +362,16 @@ def learner(rng, agent: DrQAgent, replay_buffer, demo_buffer):
 
     # wait till the replay buffer is filled with enough data
     timer = Timer()
-    for step in tqdm.tqdm(range(FLAGS.max_steps), dynamic_ncols=True, desc="learner"):
+    pbar = tqdm.tqdm(
+        total=FLAGS.max_steps,
+        initial=0,
+        desc=f"Updating {FLAGS.fwbw} learner",
+        leave=True,
+    )
+    while update_steps < FLAGS.max_steps:
+        if not update_steps < env_steps:
+            time.sleep(1)
+            continue
         # run n-1 critic updates and 1 critic + actor update.
         # This makes training on GPU faster by reducing the large batch transfer time from CPU to GPU
         for critic_step in range(FLAGS.critic_actor_ratio - 1):
@@ -300,7 +392,7 @@ def learner(rng, agent: DrQAgent, replay_buffer, demo_buffer):
             agent, update_info = agent.update_high_utd(batch, utd_ratio=1)
 
         # publish the updated network
-        if step > 0 and step % (FLAGS.steps_per_update) == 0:
+        if update_steps > 0 and update_steps % (FLAGS.steps_per_update) == 0:
             agent = jax.block_until_ready(agent)
             server.publish_network(agent.state.params)
 
@@ -311,10 +403,15 @@ def learner(rng, agent: DrQAgent, replay_buffer, demo_buffer):
         if FLAGS.checkpoint_period and update_steps % FLAGS.checkpoint_period == 0:
             assert FLAGS.checkpoint_path is not None
             checkpoints.save_checkpoint(
-                FLAGS.checkpoint_path, agent.state, step=update_steps, keep=100
+                FLAGS.checkpoint_path,
+                agent.state,
+                step=update_steps,
+                keep=100,
+                overwrite=True,
             )
 
         update_steps += 1
+        pbar.update(1)
 
 
 ##############################################################################
@@ -324,49 +421,67 @@ def main(_):
     assert FLAGS.batch_size % num_devices == 0
     # seed
     rng = jax.random.PRNGKey(FLAGS.seed)
+    rng, sampling_rng = jax.random.split(rng)
 
     # create env and load dataset
     env = gym.make(
-        FLAGS.env,
-        fake_env=FLAGS.learner,
-        save_video=FLAGS.eval_checkpoint_step,
+        FLAGS.env, fake_env=FLAGS.learner, save_video=FLAGS.eval_checkpoint_step
     )
-    env = GripperCloseEnv(env)
     if FLAGS.actor:
         env = AVPIntervention(env)
     env = RelativeFrame(env)
     env = Quat2EulerWrapper(env)
     env = SERLObsWrapper(env)
-
     env = ChunkingWrapper(env, obs_horizon=1, act_exec_horizon=None)
-    env = RecordEpisodeStatistics(env)
-
+    env = FrontCameraWrapper(env)
     image_keys = [key for key in env.observation_space.keys() if key != "state"]
 
-    rng, sampling_rng = jax.random.split(rng)
-    agent: DrQAgent = make_drq_agent(
-        seed=FLAGS.seed,
-        sample_obs=env.observation_space.sample(),
-        sample_action=env.action_space.sample(),
-        image_keys=image_keys,
-        encoder_type=FLAGS.encoder_type,
-    )
+    if FLAGS.actor:
+        front_image_keys = [
+            k for k in env.front_observation_space.keys() if "state" not in k
+        ]
 
-    # replicate agent across devices
-    # need the jnp.array to avoid a bug where device_put doesn't recognize primitives
-    agent: DrQAgent = jax.device_put(
-        jax.tree.map(jnp.array, agent), sharding.replicate()
-    )
-    
-    if FLAGS.checkpoint_path is not None and os.path.exists(FLAGS.checkpoint_path):
-        input("Checkpoint path exists, press enter to continue training")
-        ckpt = checkpoints.restore_checkpoint(
-            FLAGS.checkpoint_path,
-            agent.state,
+        from serl_launcher.networks.reward_classifier import load_classifier_func
+
+        rng = jax.random.PRNGKey(0)
+        rng, key = jax.random.split(rng)
+
+
+        env = FWBWFrontCameraBinarySegmentationRewardClassifierWrapper(
+            env
         )
-        agent = agent.replace(state=ckpt)
-        ckpt_number = os.path.basename(FLAGS.checkpoint_path).split('_')[-1]
-        print(f'Restored checkpoint from {ckpt_number}')
+        env = RecordEpisodeStatistics(env)
+
+        agents = OrderedDict()
+        for k, v in id_to_task.items():
+            rng, sampling_rng = jax.random.split(rng)
+            agent: DrQAgent = make_drq_agent(
+                seed=FLAGS.seed,
+                sample_obs=env.observation_space.sample(),
+                sample_action=env.action_space.sample(),
+                image_keys=image_keys,
+                encoder_type=FLAGS.encoder_type,
+            )
+            # replicate agent across devices
+            # need the jnp.array to avoid a bug where device_put doesn't recognize primitives
+            agent: DrQAgent = jax.device_put(
+                jax.tree.map(jnp.array, agent), sharding.replicate()
+            )
+            agents[v] = agent
+    else:
+        rng, sampling_rng = jax.random.split(rng)
+        agent: DrQAgent = make_drq_agent(
+            seed=FLAGS.seed,
+            sample_obs=env.observation_space.sample(),
+            sample_action=env.action_space.sample(),
+            image_keys=image_keys,
+            encoder_type=FLAGS.encoder_type,
+        )
+        # replicate agent across devices
+        # need the jnp.array to avoid a bug where device_put doesn't recognize primitives
+        agent: DrQAgent = jax.device_put(
+            jax.tree.map(jnp.array, agent), sharding.replicate()
+        )
 
     if FLAGS.learner:
         sampling_rng = jax.device_put(sampling_rng, device=sharding.replicate())
@@ -379,7 +494,7 @@ def main(_):
         demo_buffer = MemoryEfficientReplayBufferDataStore(
             env.observation_space,
             env.action_space,
-            capacity=10000,
+            capacity=5000,
             image_keys=image_keys,
         )
         import pickle as pkl
@@ -389,8 +504,6 @@ def main(_):
             for traj in trajs:
                 demo_buffer.insert(traj)
         print(f"demo buffer size: {len(demo_buffer)}")
-        
-        
 
         # learner loop
         print_green("starting learner loop")
@@ -403,11 +516,12 @@ def main(_):
 
     elif FLAGS.actor:
         sampling_rng = jax.device_put(sampling_rng, sharding.replicate())
-        data_store = QueuedDataStore(2000)  # the queue size on the actor
-
+        data_stores = OrderedDict(
+            {name: QueuedDataStore(2000) for name in id_to_task.values()}
+        )
         # actor loop
         print_green("starting actor loop")
-        actor(agent, data_store, env, sampling_rng)
+        actor(agents, data_stores, env, sampling_rng)
 
     else:
         raise NotImplementedError("Must be either a learner or an actor")

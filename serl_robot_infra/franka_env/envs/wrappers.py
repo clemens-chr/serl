@@ -7,6 +7,8 @@ import copy
 from franka_env.spacemouse.spacemouse_expert import SpaceMouseExpert
 from franka_env.spacemouse.avp_expert import AVPExpert
 from franka_env.utils.rotations import quat_2_euler
+from franka_env.envs.rewards.left_right_cube_reward import is_left_cube, is_right_cube
+
 
 sigmoid = lambda x: 1 / (1 + np.exp(-x))
 
@@ -45,8 +47,13 @@ class FWBWFrontCameraBinaryRewardClassifierWrapper(gym.Wrapper):
         return self.task_id
 
     def compute_reward(self, obs):
-        reward = self.reward_classifier_funcs[self.task_id](obs).item()
-        return (sigmoid(reward) >= 0.5) * 1
+        sgm = self.env.get_sgm()
+        if self.task_id == 0:
+            return is_left_cube(sgm)
+        elif self.task_id == 1:
+            return is_right_cube(sgm)
+        else:
+            raise ValueError(f"Invalid task id: {self.task_id}")
 
     def step(self, action):
         obs, rew, done, truncated, info = self.env.step(action)
@@ -54,6 +61,32 @@ class FWBWFrontCameraBinaryRewardClassifierWrapper(gym.Wrapper):
         rew += success
         done = done or success
         return obs, rew, done, truncated, info
+
+class FWBWFrontCameraBinarySegmentationRewardClassifierWrapper(gym.Wrapper):
+    """
+    This wrapper uses the front camera images to compute the reward,
+    which is not part of the RL policy's observation space. This is used for the
+    forward backward reset-free bin picking task, where there are two classifiers,
+    one for classifying success + failure for the forward and one for the
+    backward task. Here we also use these two classifiers to decide which
+    task to transition into next at the end of the episode to maximize the
+    learning efficiency.
+    """
+    
+    def __init__(self, env: Env):
+        super().__init__(env)
+        
+    def task_graph(self, obs):
+        """
+        predict the next task to transition into based on the current observation
+        if the current task is not successful, stay in the current task
+        else transition to the next task
+        """
+        success = self.compute_reward(obs)
+        if success:
+            return (self.task_id + 1) % 2
+        return self.task_id
+        
 
 
 class FrontCameraBinaryRewardClassifierWrapper(gym.Wrapper):
@@ -144,7 +177,6 @@ class Quat2EulerWrapper(gym.ObservationWrapper):
         )
         return observation
 
-
 class GripperCloseEnv(gym.ActionWrapper):
     """
     Use this wrapper to task that requires the gripper to be closed
@@ -154,11 +186,17 @@ class GripperCloseEnv(gym.ActionWrapper):
         super().__init__(env)
         ub = self.env.action_space
         assert ub.shape == (7,)
-        self.action_space = Box(ub.low[:6], ub.high[:6])
 
     def action(self, action: np.ndarray) -> np.ndarray:
         new_action = np.zeros((7,), dtype=np.float32)
-        new_action[:6] = action.copy()
+        if action.shape[0] == 6:
+            new_action[:6] = action.copy()
+        else: 
+            new_action[:6] = action[:6].copy()
+            
+        new_action[6] = 0.1
+            
+        # print(f'GRIPPER CLOSE ACTION: {new_action[:3]}')
         return new_action
 
     def step(self, action):
@@ -224,10 +262,11 @@ class SpacemouseIntervention(gym.ActionWrapper):
 
 
 class AVPIntervention(gym.ActionWrapper):
-    def __init__(self, env, avp_ip="10.93.181.127", model_path=None, gripper_only=False):
+    def __init__(self, env, avp_ip="10.93.181.127", model_path=None, gripper_only=False, debug=False):
         super().__init__(env)
 
         self.gripper_only = gripper_only
+        self.debug = debug
         
         # This is important to home the data from avp
         self.first_intervention = True
@@ -238,7 +277,8 @@ class AVPIntervention(gym.ActionWrapper):
         self.last_avp_pose = None
         self.last_hand_pos = None
         
-        self.expert = AVPExpert(avp_ip=avp_ip, model_path=model_path, gripper_only=gripper_only)
+        if not debug:
+            self.expert = AVPExpert(avp_ip=avp_ip, model_path=model_path, gripper_only=gripper_only)
         self.left, self.right = False, False
 
     def action(self, action: np.ndarray) -> np.ndarray:
@@ -249,48 +289,64 @@ class AVPIntervention(gym.ActionWrapper):
         - action: avp action if intervened (left pinching); else, policy action
         """
         
+        if self.debug:
+            rndm_action = self.env.action_space.sample()
+            return rndm_action, True
+        
         if not self.expert.is_intervening():
             self.first_intervention = True
-            self.last_avp_pose = None
-            self.last_hand_pos = None
+            self.reference_franka_pose = None
+            self.reference_avp_pose = None
+            self.franka_offset = None
             return action, False
-        
         
         expert_a, expert_hand_action = self.expert.get_action()
-
-        curr_avp_pose = expert_a
-        
-        curr_hand_pos = expert_hand_action
         
         if self.first_intervention:
-            self.last_avp_pose = curr_avp_pose.copy()
-            self.last_hand_pos = curr_hand_pos.copy()
+            self.reference_franka_pose = self.env.currpose_euler.copy()
+            self.reference_avp_pose = expert_a.copy()
             self.first_intervention = False
+            self.franka_offset = self.reference_avp_pose - self.reference_franka_pose
             return action, False
         
-        delta_pos = curr_avp_pose - self.last_avp_pose
+        # Compute the delta position between the current franka pose and the expert action
+        delta_pos = expert_a - (self.env.currpose_euler + self.franka_offset)
         
-        delta_pos[0] *= 50
-        delta_pos[1] *= 50
-        delta_pos[2] *= 80
+        print(f'AVP expert_hand_action: {expert_hand_action}')
+        print(f'AVPcurr_gripper_pos: {self.env.curr_gripper_pos}')
         
-        self.last_avp_pose = curr_avp_pose.copy()
-
-        self.last_hand_pos = curr_hand_pos.copy()
-
+        delta_pos[0] *= 30  # x
+        delta_pos[1] *= 30  # y
+        delta_pos[2] *= 30  # 
+        
+    
         if self.gripper_only:
-            if expert_hand_action:
-                gripper_action = np.random.uniform(0.9, 1.0, size=(1,))
-            else:
-                gripper_action = np.random.uniform(-1.0, -0.9, size=(1,))
+            ratio = 0.08/0.05
+            retargeted_hand_action = expert_hand_action*ratio
             
-            expert_a = np.concatenate((expert_a, gripper_action), axis=0)
+            # delta is negative if we want to close
+            delta_hand_pos = retargeted_hand_action - self.env.curr_gripper_pos
+            
+            
+            mode = "continuous"
+            if mode == "binary":
+                if expert_hand_action < 0.02:
+                    gripper_action = np.random.uniform(0.9, 1.0, size=(1,))
+                else:
+                    gripper_action = np.random.uniform(-1.0, -0.9, size=(1,))
+            elif mode == "continuous":
+                gripper_action = delta_hand_pos/0.08
+                normalized_retargeted_hand_action = retargeted_hand_action/0.04 - 1
+
+                # gripper_action = 10 * delta_hand_pos
+                gripper_action = np.clip(normalized_retargeted_hand_action, -1.0, 1.0)
+            gripper_action = np.array([gripper_action])
+            
+            print(f'AVPgripper_action: {gripper_action}')
+            expert_a = np.concatenate((delta_pos, gripper_action), axis=0)
         else:
-
-            delta_hand_pos = curr_hand_pos - self.last_hand_pos
-            delta_hand_pos = np.ones_like(delta_hand_pos)
-
-            expert_a =  np.concatenate((delta_pos, delta_hand_pos), axis=0)
+            raise NotImplementedError("Only gripper only is supported for now")                   
+            
         
         return expert_a, True
         
@@ -298,7 +354,6 @@ class AVPIntervention(gym.ActionWrapper):
     def step(self, action):
         
         new_action, replaced = self.action(action)
-        print("new action", new_action)
         obs, rew, done, truncated, info = self.env.step(new_action)
         if replaced:
             info["intervene_action"] = new_action
@@ -307,102 +362,8 @@ class AVPIntervention(gym.ActionWrapper):
         return obs, rew, done, truncated, info
     
     def close(self):
-        self.expert.close()
+        if not self.debug:
+            self.expert.close()
         super().close()
 
 
-class AVPInterventionPinch(gym.ActionWrapper):
-    def __init__(self, env, action_indices=None, avp_ip="10.93.181.127"):
-        super().__init__(env)
-
-        self.gripper_enabled = True
-        if self.action_space.shape == (6,):
-            self.gripper_enabled = False
-
-        self.action_indices = action_indices
-        
-        # This is important to home the data from avp
-        self.first_intervention = True
-        
-        self.reference_franka_pose = None
-        self.reference_avp_pose = None
-        
-        self.expert = AVPExpert(avp_ip=avp_ip)
-        self.left, self.right = False, False
-
-    def action(self, action: np.ndarray) -> np.ndarray:
-        """
-        Input:
-        - action: policy action
-        Output:
-        - action: avp action if intervened (left pinching); else, policy action
-        """
-        
-        if not self.expert.is_intervening():
-            self.first_intervention = True
-            self.last_avp_pose = None
-            return action, False
-        
-        print("AVP intervening")
-        
-        expert_a, grasping = self.expert.get_action()
-        self.grasping = grasping
-        
-        curr_avp_pose = expert_a[:6]
-        
-        if self.first_intervention:
-            self.last_avp_pose = curr_avp_pose.copy()
-            self.first_intervention = False
-            return action, False
-        
-        delta_pos = curr_avp_pose - self.last_avp_pose
-        
-        delta_pos[0] *= 50
-        delta_pos[1] *= 50
-        delta_pos[2] *= 80
-        
-        self.last_avp_pose = curr_avp_pose.copy()
-        
-        expert_a =  delta_pos
-        
-        if self.gripper_enabled:
-            # if self.grasping:
-            #     # gripper_action = np.random.uniform(0.95, 1, size=(1,))
-            #     gripper_action = np.random.uniform(0.9, 1, size=(1,))
-            # else:
-            #     gripper_action = np.random.uniform(-1, -0.9, size=(1,))
-            #     #gripper_action = np.random.uniform(0, 0.05, size=(1,))
-
-            if self.grasping:
-                # gripper_action = np.random.uniform(0.95, 1, size=(1,))
-                gripper_action = np.random.uniform(0.9, 1.0, size=(1,))
-            else:
-                #gripper_action = np.random.uniform(0, 0.05, size=(1,))
-                gripper_action = np.random.uniform(-1.0, -0.9, size=(1,))
-            
-            expert_a = np.concatenate((expert_a, gripper_action), axis=0)
-
-        
-        if self.action_indices is not None:
-            filtered_expert_a = np.zeros_like(expert_a)
-            filtered_expert_a[self.action_indices] = expert_a[self.action_indices]
-            expert_a = filtered_expert_a
-
-        
-        return expert_a, True
-        
-            
-    def step(self, action):
-        
-        new_action, replaced = self.action(action)
-        
-        obs, rew, done, truncated, info = self.env.step(new_action)
-        if replaced:
-            info["intervene_action"] = new_action
-        info["left"] = self.left
-        info["right"] = self.right
-        return obs, rew, done, truncated, info
-    
-    def close(self):
-        self.expert.close()
-        super().close()

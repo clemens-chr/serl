@@ -7,6 +7,10 @@ import cv2
 from PIL import Image, ImageTk
 import json
 import ast # For safely evaluating string representation of list
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
+import matplotlib.patches as patches
 
 # --- Configuration ---
 DEFAULT_FPS = 10
@@ -65,11 +69,15 @@ class PklExplorerApp:
         self.filepath = None
         self.image_sequences = {} # Stores {'seq_name': [img_array, ...]}
         self.other_data = {}     # Stores {'data_name': [value, ...]}
+        self.plottable_data = {}  # Stores {'data_name': {'values': [...], 'timestamps': [...], 'shape': tuple}}
         self.current_frame_index = 0
         self.video_playing = False
         self.video_job = None
         self.num_frames = 0
         self.tk_image = None # Keep a reference to avoid garbage collection
+        self.plot_figure = None
+        self.plot_canvas = None
+        self.current_frame_lines = []
 
         # --- Setup Paned Window Layout ---
         self.paned_window = ttk.PanedWindow(root, orient=tk.HORIZONTAL)
@@ -119,11 +127,23 @@ class PklExplorerApp:
         # Details Area
         self.details_frame = ttk.LabelFrame(self.right_frame, text="Selected Item Details")
         self.details_frame.pack(pady=5, padx=5, fill=tk.X)
-        self.details_text = tk.Text(self.details_frame, height=10, wrap=tk.WORD, state=tk.DISABLED, font=('Courier New', 9)) # Monospace font
+        self.details_text = tk.Text(self.details_frame, height=6, wrap=tk.WORD, state=tk.DISABLED, font=('Courier New', 9)) # Reduced height
         self.details_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        # Visualization Area (Video + Other Data)
-        self.viz_frame = ttk.LabelFrame(self.right_frame, text="Trajectory Visualization")
+        # Create a notebook for tabbed visualization
+        self.viz_notebook = ttk.Notebook(self.right_frame)
+        self.viz_notebook.pack(pady=5, padx=5, fill=tk.BOTH, expand=True)
+
+        # Video Tab
+        self.video_frame = ttk.Frame(self.viz_notebook)
+        self.viz_notebook.add(self.video_frame, text="Video/Images")
+        
+        # Plots Tab
+        self.plots_frame = ttk.Frame(self.viz_notebook)
+        self.viz_notebook.add(self.plots_frame, text="Data Plots")
+
+        # Visualization Area (Video + Other Data) - moved to video tab
+        self.viz_frame = ttk.LabelFrame(self.video_frame, text="Trajectory Visualization")
         self.viz_frame.pack(pady=5, padx=5, fill=tk.BOTH, expand=True)
 
         # Video Controls
@@ -151,12 +171,27 @@ class PklExplorerApp:
         self.other_data_text = tk.Text(self.viz_frame, height=5, wrap=tk.WORD, state=tk.DISABLED, font=('Courier New', 9)) # Monospace font
         self.other_data_text.pack(fill=tk.X, padx=5, pady=5)
 
+        # Setup plotting area in plots tab
+        self.setup_plotting_area()
+
         # --- Status Bar ---
         self.status_bar = ttk.Label(root, text="Ready.", relief=tk.SUNKEN, anchor=tk.W)
         self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
 
     def set_status(self, text):
         self.status_bar.config(text=text)
+
+    def setup_plotting_area(self):
+        """Sets up the matplotlib plotting area in the plots tab."""
+        # Create matplotlib figure
+        self.plot_figure = Figure(figsize=(12, 8), dpi=100)
+        self.plot_canvas = FigureCanvasTkAgg(self.plot_figure, self.plots_frame)
+        self.plot_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # Add toolbar for plot interaction
+        from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
+        toolbar = NavigationToolbar2Tk(self.plot_canvas, self.plots_frame)
+        toolbar.update()
 
     def load_file(self):
         """Opens file dialog, loads pickle, processes, and updates GUI."""
@@ -229,6 +264,7 @@ class PklExplorerApp:
         self.stop_video()
         self.image_sequences = {}
         self.other_data = {}
+        self.plottable_data = {}
         self.current_frame_index = 0
         self.num_frames = 0
         self.frame_slider.set(0)
@@ -249,6 +285,11 @@ class PklExplorerApp:
         text_items = self.image_canvas.find_withtag("placeholder_text")
         for item_id in text_items:
             self.image_canvas.delete(item_id)
+        # Clear plots
+        if self.plot_figure:
+            self.plot_figure.clear()
+            self.plot_canvas.draw()
+        self.current_frame_lines = []
 
 
     def _add_node(self, parent_id, key, value, path_list):
@@ -606,13 +647,18 @@ class PklExplorerApp:
         self.image_sequences = valid_image_sequences
         self.other_data = valid_other_data
 
+        # Process data for plotting
+        self.process_plottable_data()
+
         if not self.image_sequences:
             self.set_status("No suitable image sequences found for visualization.")
             # Add placeholder text to canvas
             self.image_canvas.create_text(self.image_canvas.winfo_width()//2 if self.image_canvas.winfo_width()>1 else 10,
                                          self.image_canvas.winfo_height()//2 if self.image_canvas.winfo_height()>1 else 10,
                                          anchor=tk.CENTER, text="No displayable image sequences found.", tags="placeholder_text")
-            return
+        
+        # Create plots regardless of whether images exist
+        self.create_plots()
 
         # Prepare visualization controls
         self.frame_slider.config(to=self.num_frames - 1, state=tk.NORMAL if self.num_frames > 1 else tk.DISABLED) # Disable slider if only 1 frame
@@ -622,8 +668,192 @@ class PklExplorerApp:
 
         # Display the first frame
         self.set_frame(0)
-        status_msg = f"Ready. Found {len(self.image_sequences)} sequence(s), {len(self.other_data)} data track(s)."
+        status_msg = f"Ready. Found {len(self.image_sequences)} sequence(s), {len(self.other_data)} data track(s), {len(self.plottable_data)} plottable series."
         self.set_status(status_msg)
+
+    def process_plottable_data(self):
+        """Processes other_data to extract plottable numerical data."""
+        self.plottable_data = {}
+        
+        for data_name, data_list in self.other_data.items():
+            if not data_list:
+                continue
+                
+            # Analyze the data to see if it's plottable
+            plottable_values = []
+            timestamps = list(range(len(data_list)))
+            data_shape = None
+            is_plottable = True
+            
+            for i, value in enumerate(data_list):
+                if value is None:
+                    plottable_values.append(None)
+                    continue
+                    
+                if isinstance(value, (int, float, np.integer, np.floating)):
+                    # Scalar value
+                    plottable_values.append(float(value))
+                    if data_shape is None:
+                        data_shape = ()
+                elif isinstance(value, np.ndarray):
+                    # Array value - flatten and store all elements
+                    if value.size == 0:
+                        plottable_values.append(None)
+                        continue
+                    
+                    # Handle different array shapes
+                    if value.ndim == 0:
+                        # 0-d array (scalar)
+                        plottable_values.append(float(value.item()))
+                        if data_shape is None:
+                            data_shape = ()
+                    else:
+                        # Multi-dimensional array
+                        flat_values = value.flatten()
+                        # Only plot if array is reasonably sized (< 100 elements)
+                        if flat_values.size > 100:
+                            is_plottable = False
+                            break
+                        plottable_values.append(flat_values.astype(float))
+                        if data_shape is None:
+                            data_shape = value.shape
+                        elif data_shape != value.shape:
+                            # Shape inconsistency - not plottable as a series
+                            is_plottable = False
+                            break
+                elif isinstance(value, (list, tuple)):
+                    # Try to convert to numpy array
+                    try:
+                        arr_value = np.array(value)
+                        if arr_value.dtype.kind in 'biufc':  # numeric types
+                            if arr_value.size > 100:
+                                is_plottable = False
+                                break
+                            plottable_values.append(arr_value.flatten().astype(float))
+                            if data_shape is None:
+                                data_shape = arr_value.shape
+                            elif data_shape != arr_value.shape:
+                                is_plottable = False
+                                break
+                        else:
+                            is_plottable = False
+                            break
+                    except:
+                        is_plottable = False
+                        break
+                else:
+                    # Non-numeric type
+                    is_plottable = False
+                    break
+            
+            if is_plottable and plottable_values:
+                self.plottable_data[data_name] = {
+                    'values': plottable_values,
+                    'timestamps': timestamps,
+                    'shape': data_shape
+                }
+
+    def create_plots(self):
+        """Creates plots for all plottable data."""
+        if not self.plottable_data:
+            # Show message in plots tab
+            self.plot_figure.clear()
+            ax = self.plot_figure.add_subplot(111)
+            ax.text(0.5, 0.5, 'No plottable numerical data found', 
+                   ha='center', va='center', transform=ax.transAxes, fontsize=14)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            self.plot_canvas.draw()
+            return
+        
+        self.plot_figure.clear()
+        
+        # Calculate subplot layout
+        n_plots = len(self.plottable_data)
+        if n_plots == 1:
+            rows, cols = 1, 1
+        elif n_plots <= 4:
+            rows, cols = 2, 2
+        elif n_plots <= 6:
+            rows, cols = 2, 3
+        elif n_plots <= 9:
+            rows, cols = 3, 3
+        else:
+            rows, cols = 4, 4  # Max 16 plots
+        
+        plot_idx = 0
+        self.current_frame_lines = []
+        
+        for data_name, data_info in list(self.plottable_data.items())[:16]:  # Limit to 16 plots
+            if plot_idx >= rows * cols:
+                break
+                
+            ax = self.plot_figure.add_subplot(rows, cols, plot_idx + 1)
+            
+            values = data_info['values']
+            timestamps = data_info['timestamps']
+            shape = data_info['shape']
+            
+            # Plot based on data shape
+            if shape == ():
+                # Scalar values over time
+                y_values = [v if v is not None else np.nan for v in values]
+                ax.plot(timestamps, y_values, 'b-', linewidth=1.5, label=data_name)
+                ax.set_ylabel('Value')
+            else:
+                # Array values - plot each element as a separate line
+                max_elements = min(10, shape[0] if len(shape) > 0 else 10)  # Limit lines
+                
+                # Prepare data for plotting
+                array_data = []
+                for v in values:
+                    if v is None:
+                        array_data.append([np.nan] * max_elements)
+                    else:
+                        if len(v) >= max_elements:
+                            array_data.append(v[:max_elements])
+                        else:
+                            # Pad with NaN if needed
+                            padded = list(v) + [np.nan] * (max_elements - len(v))
+                            array_data.append(padded)
+                
+                array_data = np.array(array_data).T  # Shape: (max_elements, n_timestamps)
+                
+                # Plot each element
+                colors = plt.cm.tab10(np.linspace(0, 1, max_elements))
+                for i in range(max_elements):
+                    ax.plot(timestamps, array_data[i], color=colors[i], 
+                           linewidth=1, alpha=0.8, label=f'[{i}]' if max_elements <= 5 else None)
+                
+                ax.set_ylabel('Array Values')
+                if max_elements <= 5:
+                    ax.legend(fontsize=8, loc='upper right')
+            
+            # Add vertical line for current frame
+            if self.num_frames > 0:
+                line = ax.axvline(x=self.current_frame_index, color='red', linestyle='--', 
+                                alpha=0.7, linewidth=2)
+                self.current_frame_lines.append(line)
+            
+            ax.set_xlabel('Frame')
+            ax.set_title(data_name, fontsize=10, pad=10)
+            ax.grid(True, alpha=0.3)
+            
+            # Set reasonable axis limits
+            ax.set_xlim(0, max(1, self.num_frames - 1))
+            
+            plot_idx += 1
+        
+        self.plot_figure.tight_layout(pad=2.0)
+        self.plot_canvas.draw()
+
+    def update_plot_frame_indicator(self):
+        """Updates the vertical line indicating current frame in all plots."""
+        if hasattr(self, 'current_frame_lines') and self.current_frame_lines:
+            for line in self.current_frame_lines:
+                if line:
+                    line.set_xdata([self.current_frame_index, self.current_frame_index])
+            self.plot_canvas.draw_idle()  # Use draw_idle for better performance
 
 
     def combine_images(self, frame_index):
@@ -787,6 +1017,7 @@ class PklExplorerApp:
         if new_index != self.current_frame_index or not self.image_display_id: # Update only if index changed or image not shown yet
              self.current_frame_index = new_index
              self.update_display()
+             self.update_plot_frame_indicator()
 
     def slider_update(self, value):
         """Callback when the slider value changes."""

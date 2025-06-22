@@ -101,7 +101,6 @@ class AVPExpert:
             time.sleep(0.1) # Wait for the stream to start
             pass 
         
-        retargeter = Retargeter(model_path=model_path) if not gripper_only else None
 
         while not stop_event.is_set():
 
@@ -132,13 +131,24 @@ class AVPExpert:
 
 
             if gripper_only:
-                if pinch_right < pinch_threshold and pinch_right > 0:
-                    actions_hand = True
-                else:
-                    actions_hand = False
+                type = "continuous"
+                if type == "binary":
+                    if pinch_right < pinch_threshold and pinch_right > 0:
+                        
+                        actions_hand = 1.0
+                    else:
+                        actions_hand = 0.0
+                if type == "continuous":
+                    # Linear interpolation between pinch_right values
+                    if pinch_right <= 0.02:
+                        actions_hand = 0.0
+                    elif pinch_right >= 0.05:
+                        actions_hand = 0.05
+                    else:
+                        # Linear interpolation: (0.01, 0.0) to (0.05, 0.05)
+                        actions_hand = pinch_right
             else:
-                  actions_hand, _ = retargeter.retarget(data)
-                  
+                raise NotImplementedError("Only gripper only is supported for now")                   
 
             
             if pinch_left < pinch_threshold and pinch_left > 0:
@@ -159,8 +169,12 @@ class AVPExpert:
             self.latest_data["hand_action"] = actions_hand
             
     def get_action(self) -> Tuple[np.ndarray, list]:
-        """Returns the latest action and pinch distance of the AVP."""
+        """Returns the latest action and pinch distance of the AVP in the following format;
+        action = [y, x, z, roll, pitch, yaw] (in meters and radians)
+        hand_action = [gripper_pos] in meters (between 0 and 0.05)
+        """
         action = self.latest_data["franka_action"]
+        # print(f'action: {action}')
         hand_action = self.latest_data["hand_action"]
         return np.array(action), hand_action
     

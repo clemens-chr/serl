@@ -20,7 +20,7 @@ from serl_launcher.wrappers.serl_obs_wrappers import SERLObsWrapper
 from serl_launcher.wrappers.chunking import ChunkingWrapper
 
 if __name__ == "__main__":
-    env = gym.make("FrankaPegInsert-Vision-v0")
+    env = gym.make("OrcaCubePick-Vision-v0")
     env = GripperCloseEnv(env)
     env = AVPIntervention(env, gripper_only=True, avp_ip = "192.168.1.10", debug=True)
     env = RelativeFrame(env)
@@ -37,7 +37,7 @@ if __name__ == "__main__":
     pbar = tqdm(total=success_needed)
 
     uuid = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    file_name = f"peg_insert_{success_needed}_demos_{uuid}.pkl"
+    file_name = f"orca_cube_pick_{success_needed}_demos_{uuid}.pkl"
     file_dir = os.path.dirname(os.path.realpath(__file__))  # same dir as this script
     file_path = os.path.join(file_dir, file_name)
 

@@ -1,39 +1,150 @@
-import queue
+import cv2
 import threading
+import queue
 import time
+import websocket
+import json
+import base64
+import numpy as np
+from termcolor import colored
+from websocket import create_connection
 
 
 class VideoCapture:
-    def __init__(self, cap, name=None):
-        if name is None:
-            name = cap.name
+    def __init__(self, cap, name="Camera", server_url_segment=None):
         self.name = name
-        self.q = queue.Queue()
         self.cap = cap
-        self.t = threading.Thread(target=self._reader)
-        self.t.daemon = True
-        self.enable = True
-        self.t.start()
+        
+        if server_url_segment is not None:
+            self.server_url = server_url_segment
+            self.segmentation_enabled = True
+        else:
+            self.segmentation_enabled = False
 
-        # read frames as soon as they are available, keeping only most recent one
+        self.rgb_q = queue.Queue(maxsize=1)
+
+        self.latest_frame = None
+        self.frame_lock = threading.Lock()
+
+        self.enable = True
+
+        self.rgb_t = threading.Thread(target=self._reader, daemon=True)
+        self.rgb_t.start()
+        
+        if self.segmentation_enabled:
+            self.segmentation_q = queue.Queue(maxsize=3)
+            self.segmentation_t = threading.Thread(target=self._segmentation_reader, daemon=True)
+            self.segmentation_t.start()
 
     def _reader(self):
         while self.enable:
-            time.sleep(0.01)
             ret, frame = self.cap.read()
             if not ret:
-                break
-            if not self.q.empty():
+                continue
+
+            with self.frame_lock:
+                self.latest_frame = frame
+
+            if not self.rgb_q.full():
+                self.rgb_q.put(frame)
+            else:
                 try:
-                    self.q.get_nowait()  # discard previous (unprocessed) frame
+                    self.rgb_q.get_nowait()
+                    self.rgb_q.put(frame)
                 except queue.Empty:
                     pass
-            self.q.put(frame)
+
+            time.sleep(0.01)
+
+    def _segmentation_reader(self):
+        ws = None
+        while self.enable:
+            try:
+                if ws is None or not ws.connected:
+                    print(colored("Connecting to WebSocket...", "cyan"))
+                    ws = create_connection(self.server_url, timeout=3)
+                    print(colored("Connected to WebSocket", "green"))
+
+                with self.frame_lock:
+                    frame = self.latest_frame.copy() if self.latest_frame is not None else None
+
+                if frame is None:
+                    time.sleep(0.01)
+                    continue
+
+                image_base64 = self.encode_image(frame)
+                message = {
+                    "type": "image",
+                    "image": image_base64,
+                    "timestamp": time.time()
+                }
+
+                ws.send(json.dumps(message))
+                response = ws.recv()
+                response_data = json.loads(response)
+
+                if response_data["type"] == "mask":
+                    mask = self.decode_image(response_data["mask"])
+                    if self.segmentation_q.full():
+                        self.segmentation_q.get_nowait()
+                    self.segmentation_q.put(mask)
+                elif response_data["type"] == "error":
+                    print(colored(f"Server error: {response_data['message']}", "red"))
+
+            except Exception as e:
+                print(colored(f"WebSocket error: {e}", "yellow"))
+                time.sleep(1)
+                try:
+                    if ws:
+                        ws.close()
+                except:
+                    pass
+                ws = None
+
+    def encode_image(self, frame):
+        _, buffer = cv2.imencode('.jpg', frame)
+        return base64.b64encode(buffer).decode('utf-8')
+
+    def decode_image(self, b64_string):
+        img_data = base64.b64decode(b64_string)
+        np_arr = np.frombuffer(img_data, np.uint8)
+        return cv2.imdecode(np_arr, cv2.IMREAD_UNCHANGED)
 
     def read(self):
-        return self.q.get(timeout=5)
+        return self.rgb_q.get(timeout=5)
+
+    def read_segmentation(self):
+        if self.segmentation_enabled:
+            return self.segmentation_q.get(timeout=5)
+        else:
+            return None
 
     def close(self):
         self.enable = False
-        self.t.join()
-        self.cap.close()
+        self.rgb_t.join()
+        self.segmentation_t.join()
+        self.cap.release()
+
+
+# --- Example usage ---
+
+if __name__ == "__main__":
+    cap = cv2.VideoCapture(0)  # or RealSense pipeline output
+    video = VideoCapture(cap, server_url="ws://localhost:8765")
+
+    try:
+        while True:
+            frame = video.read()
+            cv2.imshow("RGB", frame)
+
+            try:
+                mask = video.read_segmentation()
+                cv2.imshow("Segmentation", mask)
+            except queue.Empty:
+                pass
+
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+    finally:
+        video.close()
+        cv2.destroyAllWindows()
