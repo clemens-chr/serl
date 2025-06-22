@@ -1,1 +1,1 @@
-from franka_env.envs.cube_relocation_env.franka_cube_relocation import FrankaCubeRelocation
+from franka_env.envs.orca_cube_pick_env.orca_cube_pick import OrcaCubePick

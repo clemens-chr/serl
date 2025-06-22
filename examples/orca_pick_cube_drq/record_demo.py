@@ -49,7 +49,7 @@ if __name__ == "__main__":
         raise PermissionError(f"No permission to write to {file_dir}")
 
     while success_count < success_needed:
-        actions = np.zeros((6,))
+        actions = np.zeros((23,))
         next_obs, rew, done, truncated, info = env.step(action=actions)
         
         # Only record transition if there was an intervention
