@@ -7,7 +7,7 @@ import copy
 from franka_env.spacemouse.spacemouse_expert import SpaceMouseExpert
 from franka_env.spacemouse.avp_expert import AVPExpert
 from franka_env.utils.rotations import quat_2_euler
-from franka_env.envs.rewards.left_right_cube_reward import is_left_cube, is_right_cube
+from serl_robot_infra.franka_env.envs.rewards.cube_reward import is_left_cube, is_right_cube
 
 
 sigmoid = lambda x: 1 / (1 + np.exp(-x))

@@ -104,7 +104,7 @@ class FrankaEnv(gym.Env):
         # Gripper cooldown functionality (temporary flag for testing)
         self.gripper_cooldown_enabled = True  # Set to False to disable
         self.last_gripper_state_change = time.time()
-        self.gripper_cooldown_duration = 5.0  # 5 seconds cooldown
+        self.gripper_cooldown_duration = 2.0  # 5 seconds cooldown
         
         self.randomreset = config.RANDOM_RESET
         self.random_xy_range = config.RANDOM_XY_RANGE
@@ -217,14 +217,6 @@ class FrankaEnv(gym.Env):
             Rotation.from_euler("xyz", action[3:6] * self.action_scale[1])
             * Rotation.from_quat(self.currpos[3:])
         ).as_quat()
-
-        
-        # Scale gripper delta from [-1, 1] to [0, 255] where 0 is closed and 255 is open
-        #gripper_action_effective = float(self.curr_gripper_pos*255/0.08 + gripper_delta*255)
-        
-        # print(f'gripper_action_effective: {gripper_action_effective}')
-        # print(f'gripper_delta: {gripper_delta}')
-        # print(f'self.curr_gripper_pos: {self.curr_gripper_pos}')
         
         print(f'gripper_action: {gripper_action}')
         gripper_action_effective = self._send_gripper_command(gripper_action)
@@ -245,8 +237,6 @@ class FrankaEnv(gym.Env):
 
     def compute_reward(self, obs) -> float:
         """We are using a sparse or dense reward function."""
-   
-    
         reward_type = 'sparse'
         
         current_pose = obs["state"]["tcp_pose"]
@@ -276,8 +266,6 @@ class FrankaEnv(gym.Env):
             reward -= self.config.GRIPPER_PENALTY
             
         print(f'Reward: {reward}')
-
-       # print(f'Reward: {reward} for type: {reward_type}')
         return reward
 
     def crop_image(self, name, image) -> np.ndarray:
@@ -293,9 +281,7 @@ class FrankaEnv(gym.Env):
         """Get images from the realsense cameras."""
         images = {}
         display_images = {}
-        
-        sgms_images = {}
-        
+
         for key, cap in self.cap.items():
             try:
                 rgb = cap.read()
@@ -315,7 +301,6 @@ class FrankaEnv(gym.Env):
                     display_images[key + "_sgm"] = resized_sgm
                     display_images[key + "_sgm_full"] = cropped_sgm
                                     
-                
             except queue.Empty:
                 input(
                     f"{key} camera frozen. Check connect, then press enter to relaunch..."
@@ -327,15 +312,8 @@ class FrankaEnv(gym.Env):
         self.recording_frames.append(
             np.concatenate([display_images[f"{k}_full"] for k in self.cap], axis=0)
         )
-        
-        # # Make all images black
-        # for key in images:
-        #     images[key] = np.zeros_like(images[key])
-        # for key in display_images:
-        #     display_images[key] = np.zeros_like(display_images[key])
-        
+      
         self.img_queue.put(display_images)
-                
         return images
     
     def get_sgm(self) -> Dict[str, np.ndarray]:

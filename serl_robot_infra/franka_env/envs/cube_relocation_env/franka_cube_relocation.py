@@ -9,7 +9,7 @@ import gym
 from franka_env.envs.franka_env import FrankaEnv
 from franka_env.utils.rotations import euler_2_quat
 from franka_env.envs.cube_relocation_env.config import BinEnvConfig
-from franka_env.envs.rewards.left_right_cube_reward import is_left_cube, is_right_cube
+from serl_robot_infra.franka_env.envs.rewards.cube_reward import is_left_cube, is_right_cube
 
 
 class FrankaCubeRelocation(FrankaEnv):

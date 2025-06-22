@@ -75,6 +75,9 @@ def is_right_cube(sgm):
     else:
         return 0
     
+def is_cube_lifted(sgm):
+    avg_x, avg_y = get_white_pixel_center_normalized(sgm)
+    return avg_y < 0.6
     
 if __name__ == "__main__":
     
