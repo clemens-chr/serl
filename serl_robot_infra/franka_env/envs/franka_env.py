@@ -84,9 +84,12 @@ class FrankaEnv(gym.Env):
         self.max_episode_length = max_episode_length
 
         # convert last 3 elements from euler to quat, from size (6,) to (7,)
-        self.resetpos = np.concatenate(
-            [config.RESET_POSE[:3], euler_2_quat(config.RESET_POSE[3:])]
-        )
+        if len(config.RESET_POSE) == 6:
+            self.resetpos = np.concatenate(
+                [config.RESET_POSE[:3],  Rotation.from_euler('xyz', config.RESET_POSE[3:]).as_quat()]
+            )
+        else:
+            self.resetpos = config.RESET_POSE
 
         self.currpos = self.resetpos.copy()
         self.currpose_euler = np.zeros((6,))
@@ -149,10 +152,10 @@ class FrankaEnv(gym.Env):
                 ),
                 "images": gym.spaces.Dict(
                     {
-                        "wrist_1": gym.spaces.Box(
+                        "front": gym.spaces.Box(
                             0, 255, shape=(128, 128, 3), dtype=np.uint8
                         ),
-                        "front": gym.spaces.Box(
+                        "side": gym.spaces.Box(
                             0, 255, shape=(128, 128, 3), dtype=np.uint8
                         ),
                     }
@@ -218,7 +221,7 @@ class FrankaEnv(gym.Env):
             * Rotation.from_quat(self.currpos[3:])
         ).as_quat()
         
-        print(f'gripper_action: {gripper_action}')
+        #print(f'gripper_action: {gripper_action}')
         gripper_action_effective = self._send_gripper_command(gripper_action)
         if not np.array_equal(self.clip_safety_box(self.nextpos), self.nextpos):
             print(f'CLIPPING OCCURED: {self.nextpos}')
@@ -265,12 +268,12 @@ class FrankaEnv(gym.Env):
         if self.config.APPLY_GRIPPER_PENALTY and False:
             reward -= self.config.GRIPPER_PENALTY
             
-        print(f'Reward: {reward}')
+            #print(f'Reward: {reward}')
         return reward
 
     def crop_image(self, name, image) -> np.ndarray:
         """Crop realsense images to be a square."""
-        if name.startswith("wrist"):
+        if name.startswith("side"):
             return image[:, 80:560, :]
         elif name.startswith("front"):
             return image[:, 80:560, :]
@@ -321,6 +324,7 @@ class FrankaEnv(gym.Env):
         sgm = self.cap["front"].read_segmentation()
         if sgm is not None:
             cv2.imwrite(f'./sgm.png', sgm)
+            #print(f'saved sgm to ./sgm.png')
         return sgm
 
     def interpolate_move(self, goal: np.ndarray, timeout: float):
@@ -332,6 +336,8 @@ class FrankaEnv(gym.Env):
             self._send_pos_command(p)
             time.sleep(1 / self.hz)
         self._update_currpos()
+        #print(f'interpolated move to {goal}')
+        time.sleep(1)
 
     def go_to_rest(self, joint_reset=False):
         """
@@ -342,11 +348,14 @@ class FrankaEnv(gym.Env):
         # Change to precision mode for reset
         requests.post(self.url + "update_param", json=self.config.PRECISION_PARAM)
         time.sleep(0.5)
+        
 
         # Perform joint reset if needed
+        #print(f'performing joint reset')
         if joint_reset:
             requests.post(self.url + "jointreset")
             time.sleep(0.5)
+                    
 
         # Perform Carteasian reset
         if self.randomreset:  # randomize reset position in xy plane
@@ -362,6 +371,7 @@ class FrankaEnv(gym.Env):
             self.interpolate_move(reset_pose, timeout=1.5)
         else:
             reset_pose = self.resetpos.copy()
+            #print(f'moving to reset_pose: {reset_pose}')
             self.interpolate_move(reset_pose, timeout=1.5)
 
         # Change to compliance mode
@@ -437,7 +447,7 @@ class FrankaEnv(gym.Env):
         self._recover()
         arr = np.array(pos).astype(np.float32)
         data = {"arr": arr.tolist()}
-    #    print(f'LAST ACTION: {arr[:3]}')
+        #print(f'LAST ACTION: {arr}')
         requests.post(self.url + "pose", json=data)
 
     def _send_gripper_command(self, pos: float, mode="binary"):

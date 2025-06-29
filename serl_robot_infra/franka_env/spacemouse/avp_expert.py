@@ -7,7 +7,7 @@ from typing import Tuple
 from dataclasses import dataclass
 from scipy.spatial.transform import Rotation # Import Rotation
 from orca_core import OrcaHand
-
+from franka_env.spacemouse.retargeter_client import RetargeterClient
 
 class AVPExpert:
     """
@@ -85,6 +85,21 @@ class AVPExpert:
         reference_franka_pose = None 
         
         stream = VisionProStreamer(ip = ip, record = True)
+        self.hand = OrcaHand("/home/ccc/orca_ws/src/orca_configs/orcahand_v1_right_clemens_stanford")
+        
+        if not gripper_only:
+            self.target_angles = None
+            retargeter = RetargeterClient()
+            init_response = retargeter.initialize_retargeter(
+                model_path="/home/ccc/orca_ws/src/orca_configs/orcahand_v1_right_clemens_stanford",
+                urdf_path="/home/ccc/orca_ws/src/orca_ros/orcahand_description/models/urdf/orcahand_right.urdf"
+            )
+            print(f"Initialization response: {init_response}")
+            time.sleep(1)
+            
+            if init_response['status'] == 'success':
+                print("Retargeter initialized")
+                time.sleep(1)
 
         while not stream and not stop_event.is_set():
             try:
@@ -92,7 +107,7 @@ class AVPExpert:
                 stream = VisionProStreamer(ip = ip, record = True)
             except Exception as e:
                 print(f"Error initializing AVP streamer: {e}")
-                time.sleep(10)
+                time.sleep(4)
 
         last_loop_time = time.time()
 
@@ -131,13 +146,13 @@ class AVPExpert:
 
 
             if gripper_only:
-                type = "continuous"
+                type = "binary"
                 if type == "binary":
                     if pinch_right < pinch_threshold and pinch_right > 0:
                         
                         actions_hand = 1.0
                     else:
-                        actions_hand = 0.0
+                        actions_hand = -1.0
                 if type == "continuous":
                     # Linear interpolation between pinch_right values
                     if pinch_right <= 0.02:
@@ -148,7 +163,15 @@ class AVPExpert:
                         # Linear interpolation: (0.01, 0.0) to (0.05, 0.05)
                         actions_hand = pinch_right
             else:
-                raise NotImplementedError("Only gripper only is supported for now")                   
+                retarget_response = retargeter.retarget(data)
+                
+                if retarget_response['status'] == 'success':
+                    target_angles = retarget_response['target_angles']
+                    target_angles = np.array([np.rad2deg(target_angles[joint_id]) for joint_id in self.hand.joint_ids])
+                    actions_hand = target_angles
+            
+                else:
+                    print(f"Frame retargeting failed: {retarget_response['message']}")                  
 
             
             if pinch_left < pinch_threshold and pinch_left > 0:
@@ -159,13 +182,18 @@ class AVPExpert:
             
             # Extract translation (x, y, z) from the matrix
             translation = current_wrist_pose_7d[:3]
-            # rotation = scipy.spatial.transform.Rotation.from_matrix(right_wrist_matrix[:3, :3]).as_euler('xyz', degrees=False)
-            rotation = [0.0, 0.0, 0.0]
+            # Convert quaternion to euler angles for rotation
+            quaternion = current_wrist_pose_7d[3:]  # [x, y, z, w]
+            rotation = scipy.spatial.transform.Rotation.from_quat(quaternion).as_euler('xyz', degrees=False)
+            rotation[0] *= 0
+            rotation[1] *= 0
+
             action = [
-                translation[1]*0.5, -translation[0]*0.5, translation[2]*0.5,  # y, x, z
-                -rotation[0], -rotation[1], -rotation[2]          # roll, pitch, yaw
+                translation[1], -translation[0], translation[2],  # y, x, z
+                -rotation[0], -rotation[1], rotation[2]          # roll, pitch, yaw
             ]
             self.latest_data["franka_action"] = action
+            
             self.latest_data["hand_action"] = actions_hand
             
     def get_action(self) -> Tuple[np.ndarray, list]:

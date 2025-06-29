@@ -62,7 +62,7 @@ def get_white_pixel_center_normalized(mask_image: np.ndarray, threshold: int = 1
 def is_left_cube(sgm):
     avg_x, avg_y = get_white_pixel_center_normalized(sgm)
     print(f'avg_x: {avg_x}, avg_y: {avg_y}')
-    if avg_x > 0.5 and avg_x < 0.68 and avg_y < 0.53:
+    if avg_x > 0.35 and avg_x < 0.68 and avg_y < 0.53:
         return 1
     else:
         return 0
@@ -77,18 +77,14 @@ def is_right_cube(sgm):
     
 def is_cube_lifted(sgm):
     avg_x, avg_y = get_white_pixel_center_normalized(sgm)
-    return avg_y < 0.6
+    return avg_x > 0.35 and avg_x < 0.75 and avg_y < 0.58
     
 if __name__ == "__main__":
     
     while True:
-        sgm = cv2.imread("/home/ccc/orca_ws/src/sgm.png")
+        sgm = cv2.imread("/home/ccc/orca_ws/src/serl/examples/orca_pick_cube_drq/sgm.png")
         if sgm is None:
             continue
-        if is_left_cube(sgm):
-            print("Left cube")
-        elif is_right_cube(sgm):
-            print("Right cube")
-        else:
-            print("No reward")
+        
+        print(is_cube_lifted(sgm))
         time.sleep(0.05)

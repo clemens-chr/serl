@@ -2,27 +2,32 @@ import numpy as np
 from franka_env.envs.franka_env import DefaultEnvConfig
 
 
-class OrcaCubePickEnvConfig(DefaultEnvConfig):
+class OrcaCubePickBinaryEnvConfig(DefaultEnvConfig):
     """Set the configuration for FrankaEnv."""
 
     SERVER_URL: str = "http://127.0.0.1:5000/"
     REALSENSE_CAMERAS = {
-        "front": "317622074238",
-        "side": "239222303782",
+        "side": "317622074238",
+        "front": "239222303782",
     }
-    TARGET_POSE = np.array(
+    TARGET_POSE = np.array(          
         [
-            0.4861050577505878,
-            0.03539724217748154,
-            0.2713914246063738,
-            2.8004016182522973,
-            -0.3274430279604428,
-            0.8126687532359295
+            0.47645636920028644,
+            -0.0048274134634137145,
+            0.27512425153484343,
+            2.730676962763238,
+            -0.35912270029753524,
+            0.8814468711971123
         ]
     )
     
-    MIN_Z_POS = 0.185
-    MAX_Z_POS = 0.23
+    MIN_Z_POS = 0.226
+    MAX_Z_POS = 0.3
+    
+    MIN_X_POS = 0.43
+    MAX_X_POS = 0.52
+    MIN_Y_POS = -0.04
+    MAX_Y_POS = 0.04
     
 
     RESET_HAND_POSE = {'thumb_pip': -9.196288398631111, 'thumb_dip': 39.66277704372641, 'thumb_abd': 7.826453671991196, 'thumb_mcp': 4.087357406937478, 'ring_abd': -6.458179156693582, 'ring_pip': 40.39964322575463, 'ring_mcp': 31.03319460291395, 'middle_mcp': 51.93624519793229, 'middle_pip': 34.44396330497953, 'pinky_mcp': 27.368421519657417, 'pinky_pip': 14.51563707070973, 'pinky_abd': -5.214820014958331, 'middle_abd': -0.27409616187200214, 'index_abd': 83.70515603660898, 'index_mcp': 46.69700921040714, 'index_pip': 26.261932898504583, 'wrist': -29.815731106980543}
@@ -34,27 +39,27 @@ class OrcaCubePickEnvConfig(DefaultEnvConfig):
     
     RESET_POSE = TARGET_POSE + np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
     REWARD_THRESHOLD: np.ndarray = np.zeros(6)
-    ACTION_SCALE = np.array([0.025, 0.0, 5])
+    ACTION_SCALE = np.array([0.02, 0.06, 0.5])
     RANDOM_RESET = False
     RANDOM_XY_RANGE = 0.05
-    RANDOM_RZ_RANGE = np.pi / 6
+    RANDOM_RZ_RANGE = np.pi / 4
     ABS_POSE_LIMIT_LOW = np.array(
         [
-            TARGET_POSE[0] - RANDOM_XY_RANGE,
-            TARGET_POSE[1] - RANDOM_XY_RANGE,
+            MIN_X_POS,
+            MIN_Y_POS,
             MIN_Z_POS,
-            TARGET_POSE[3] - 0.01,
-            TARGET_POSE[4] - 0.01,
+            TARGET_POSE[3] - 0.005,
+            TARGET_POSE[4] - 0.005,
             TARGET_POSE[5] - RANDOM_RZ_RANGE,
         ]
     )
     ABS_POSE_LIMIT_HIGH = np.array(
         [
-            TARGET_POSE[0] + RANDOM_XY_RANGE,
-            TARGET_POSE[1] + RANDOM_XY_RANGE,
+            MAX_X_POS,
+            MAX_Y_POS,
             MAX_Z_POS,
-            TARGET_POSE[3] + 0.01,
-            TARGET_POSE[4] + 0.01,
+            TARGET_POSE[3] + 0.005,
+            TARGET_POSE[4] + 0.005,
             TARGET_POSE[5] + RANDOM_RZ_RANGE,
         ]
     )

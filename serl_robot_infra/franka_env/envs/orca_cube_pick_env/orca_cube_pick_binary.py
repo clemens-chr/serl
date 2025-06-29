@@ -11,19 +11,23 @@ from orca_core import OrcaHand, MockOrcaHand
 
 from franka_env.envs.franka_env import FrankaEnv
 from franka_env.utils.rotations import euler_2_quat
-from franka_env.envs.orca_cube_pick_env.config import OrcaCubePickEnvConfig
+from franka_env.envs.orca_cube_pick_env.config_binary import OrcaCubePickBinaryEnvConfig
 from franka_env.envs.rewards.cube_reward import is_cube_lifted
 
 
-class OrcaCubePick(FrankaEnv):
+class OrcaCubePickBinary(FrankaEnv):
     def __init__(self, **kwargs):
-        super().__init__(**kwargs, config=OrcaCubePickEnvConfig)
+        super().__init__(**kwargs, config=OrcaCubePickBinaryEnvConfig)
         
+
         self.reset_hand_pose = self.config.RESET_HAND_POSE
         
+        self.hand_open_pose = self.config.HAND_OPEN_POSE
+        self.hand_close_pose = self.config.HAND_CLOSE_POSE
+        
         self.action_space = gym.spaces.Box(
-            np.ones((23,), dtype=np.float32) * -1,
-            np.ones((23,), dtype=np.float32),
+            np.ones((7,), dtype=np.float32) * -1,
+            np.ones((7,), dtype=np.float32),
         )
         
         self.observation_space["state"] = gym.spaces.Dict(
@@ -32,7 +36,7 @@ class OrcaCubePick(FrankaEnv):
                             -np.inf, np.inf, shape=(7,)
                         ),  # xyz + quat
                 "tcp_vel": gym.spaces.Box(-np.inf, np.inf, shape=(6,)),
-                "hand_pose": gym.spaces.Box(-1, 1, shape=(17,)),
+                "hand_pose": gym.spaces.Box(-1, 1, shape=(1,)),
                 "tcp_force": gym.spaces.Box(-np.inf, np.inf, shape=(3,)),
                 "tcp_torque": gym.spaces.Box(-np.inf, np.inf, shape=(3,)),
             }
@@ -40,8 +44,8 @@ class OrcaCubePick(FrankaEnv):
         
         self.observation_space["images"] = gym.spaces.Dict(
             {
-                "wrist_1": gym.spaces.Box(0, 255, shape=(128, 128, 3), dtype=np.uint8),
                 "front": gym.spaces.Box(0, 255, shape=(128, 128, 3), dtype=np.uint8),
+                "side": gym.spaces.Box(0, 255, shape=(128, 128, 3), dtype=np.uint8),
             }
         )
         
@@ -50,8 +54,8 @@ class OrcaCubePick(FrankaEnv):
         if not ok:
             raise Exception(f'Failed to connect to hand: {msg}')
         
-        self.hand.set_joint_pos(self.reset_hand_pose, num_steps=25, step_size=0.001)    
-        self.current_hand_angles = self.hand.get_joint_pos()
+        self.hand.set_joint_pos(self.hand_open_pose, num_steps=25, step_size=0.001)    
+        self.current_hand_pos = -1 # (open)
         
         # Hand control thread variables
         self.hand_action_queue = queue.Queue(maxsize=1)
@@ -60,7 +64,7 @@ class OrcaCubePick(FrankaEnv):
         self.hand_control_thread = threading.Thread(target=self._hand_control_loop, daemon=True)
         self.hand_control_thread.start()
     
-        self.max_episode_length = 250
+        self.max_episode_length = 200
 
         
         """
@@ -74,6 +78,11 @@ class OrcaCubePick(FrankaEnv):
             self._TARGET_POSE[:3] + np.array([0.07, 0.03, 0.04]),
             dtype=np.float64,
         )
+        
+        print(f'hand_open_pose: {self.hand_open_pose}')
+        print(f'hand_close_pose: {self.hand_close_pose}')
+        
+        
 
     def _hand_control_loop(self):
         """Background hand control thread running at variable hertz"""
@@ -100,40 +109,26 @@ class OrcaCubePick(FrankaEnv):
                 if action_received:
                     # Calculate the target hand angles
                     
-                    target_hand_angles = self.current_hand_angles - hand_action * self.action_scale[2]
-                    # Convert lists to numpy arrays for interpolation
-                    current = np.array(self.current_hand_angles)
-                    target = np.array(target_hand_angles)
-                    # Interpolate between current and target
-                    for step in range(1, num_steps + 1):
-                        loop_start = time.time()
+                    
+                    curr_pos = self.current_hand_pos
+                    
+                    next_pos = curr_pos + hand_action * self.action_scale[2]
+                    
+                    next_pos = np.clip(next_pos, -1, 1)
+                                        
+                
+                    normalized_next_pos = (next_pos + 1) / 2
+                    
+                    target_dict = {}
+                    for i, joint_id in enumerate(self.hand.joint_ids):
+                        target_dict[joint_id] = self.hand_open_pose[joint_id] + (self.hand_close_pose[joint_id] - self.hand_open_pose[joint_id]) * normalized_next_pos
+                    
+                    target_dict = self.clip_hand_angles(target_dict)
 
-                        alpha = step / num_steps
-                        interp_angles = current * (1 - alpha) + target * alpha
-
-                        # Convert to target dict
-                        target_dict = {}
-                        joints_to_skip = ['index_abd', 'middle_abd', 'ring_abd', 'pinky_abd', 'wrist']
-                        for i, angle in enumerate(interp_angles):
-                            if self.hand.joint_ids[i] in joints_to_skip:
-                                continue
-                            target_dict[self.hand.joint_ids[i]] = angle
-
-                        # Clip angles
-                        target_dict = self.clip_hand_angles(target_dict)
-
-                        # Send to hand
-                        self.hand.set_joint_pos(target_dict)
-                        
-                        loop_duration = time.time() - loop_start
-                        sleep_time = max(0, target_interval - loop_duration)
-                        # Optionally, sleep to maintain hand_hz timing
-                        if sleep_time > 0:
-                            time.sleep(sleep_time)
-                        
-
-                    # After interpolation, update current_hand_angles
-                    self.current_hand_angles = target_hand_angles
+                    # Send to hand
+                    self.hand.set_joint_pos(target_dict)
+                    
+                    self.current_hand_pos = next_pos
                         
                     
             except Exception as e:
@@ -148,8 +143,6 @@ class OrcaCubePick(FrankaEnv):
             current_time = time.time()
             actual_hertz = 1.0 / (current_time - last_time)
             queue_size = self.hand_action_queue.qsize()
-            #print(f"Hand control actual rate: {actual_hertz:.1f} Hz (target: {self.hand_control_hertz:.1f} Hz)")
-            #print(f"Loop time: {elapsed*1000:.1f}ms, Sleep time: {sleep_time*1000:.1f}ms")
             last_time = current_time
 
     def intersect_line_bbox(self, p1, p2, bbox_min, bbox_max):
@@ -186,6 +179,10 @@ class OrcaCubePick(FrankaEnv):
 
     def clip_safety_box(self, pose):
         pose = super().clip_safety_box(pose)
+        
+        
+        
+        
         # Clip xyz to inner box
         # if self.inner_safety_box.contains(pose[:3]):
         #     # print(f'Command: {pose[:3]}')
@@ -200,6 +197,7 @@ class OrcaCubePick(FrankaEnv):
 
 
     def reset(self, joint_reset=False, **kwargs):
+        self.current_hand_pos = -1 # (open)
         return super().reset(joint_reset, **kwargs)
     
     def compute_reward(self, obs) -> float:
@@ -214,9 +212,8 @@ class OrcaCubePick(FrankaEnv):
         self.hand.set_joint_pos(angles)
         
     def clip_hand_angles(self, angles: dict) -> dict:
-        roms = self.hand.joint_roms
         for joint_id, angle in angles.items():
-            angles[joint_id] = np.clip(angle, roms[joint_id][0] + 5, roms[joint_id][1] - 5)
+            angles[joint_id] = np.clip(angle, self.hand_open_pose[joint_id], self.hand_close_pose[joint_id])
         return angles
         
     def step(self, action: np.ndarray) -> tuple:
@@ -228,24 +225,20 @@ class OrcaCubePick(FrankaEnv):
         action = np.clip(action, self.action_space.low, self.action_space.high)
         xyz_delta = action[:3]
         
-        print(f'xyz_delta: {xyz_delta}')
-        hand_action = action[6:23]  
+        hand_action = action[6]  
         #print(f'hand_action: {hand_action}')
         t1_duration = time.time() - t1
         
         # Section 2: Position calculation
         t2 = time.time()
-        print(f'currpos: {self.currpos}')
         self.nextpos = self.currpos.copy()
         self.nextpos[:3] = self.nextpos[:3] + xyz_delta * self.action_scale[0]
-        print(f'nextpos before: {self.nextpos}')
         
         self.nextpos[3:] = (
             Rotation.from_euler("xyz", action[3:6] * self.action_scale[1])
             * Rotation.from_quat(self.currpos[3:])
         ).as_quat()
         
- 
         self._send_pos_command(self.clip_safety_box(self.nextpos))
 
         
@@ -258,18 +251,16 @@ class OrcaCubePick(FrankaEnv):
         except queue.Full:
             # Queue is full, skip this action
             pass
-        t4_duration = time.time() - t4
 
         # Section 5: Robot state update
         t5 = time.time()
         self._update_currpos()
-        t5_duration = time.time() - t5
 
         # Section 6: Observation and reward computation
         t6 = time.time()
         ob = self._get_obs()
         reward = self.compute_reward(ob)
-        print(f'reward: {reward}')
+       # print(f'reward: {reward}')
         t6_duration = time.time() - t6
 
         # Section 7: Loop timing and sleep
@@ -310,9 +301,9 @@ class OrcaCubePick(FrankaEnv):
         self._update_currpos()
 
         reset_pose = copy.deepcopy(self.currpos)
-        reset_pose[2] += 0.1
+        reset_pose[2] += 0.05
         self.interpolate_move(reset_pose, timeout=1)
-        self.hand.set_joint_pos(self.reset_hand_pose, num_steps=25, step_size=0.001)
+        self.hand.set_joint_pos(self.hand_open_pose, num_steps=25, step_size=0.001)
       
         # execute the go_to_rest method from the parent class
         super().go_to_rest(joint_reset)
@@ -340,7 +331,7 @@ class OrcaCubePick(FrankaEnv):
         state_observation = {
             "tcp_pose": self.currpos,
             "tcp_vel": self.currvel,
-            "hand_pose": self.current_hand_angles,
+            "hand_pose": self.current_hand_pos,
             "tcp_force": self.currforce,
             "tcp_torque": self.currtorque,
         }

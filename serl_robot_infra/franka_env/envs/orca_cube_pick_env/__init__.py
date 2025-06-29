@@ -1,1 +1,3 @@
 from franka_env.envs.orca_cube_pick_env.orca_cube_pick import OrcaCubePick
+
+from franka_env.envs.orca_cube_pick_env.orca_cube_pick_binary import OrcaCubePickBinary

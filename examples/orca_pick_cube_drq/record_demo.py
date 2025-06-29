@@ -20,9 +20,8 @@ from serl_launcher.wrappers.serl_obs_wrappers import SERLObsWrapper
 from serl_launcher.wrappers.chunking import ChunkingWrapper
 
 if __name__ == "__main__":
-    env = gym.make("OrcaCubePick-Vision-v0")
-    env = GripperCloseEnv(env)
-    env = AVPIntervention(env, gripper_only=True, avp_ip = "192.168.1.10", debug=True)
+    env = gym.make("OrcaCubePickBinary-Vision-v0")
+    env = AVPIntervention(env, avp_ip = "192.168.1.10", debug=False, gripper_only=True)
     env = RelativeFrame(env)
     env = Quat2EulerWrapper(env)
     env = SERLObsWrapper(env)
@@ -32,7 +31,7 @@ if __name__ == "__main__":
 
     transitions = []
     success_count = 0
-    success_needed = 20
+    success_needed = 21
     total_count = 0
     pbar = tqdm(total=success_needed)
 
@@ -49,11 +48,12 @@ if __name__ == "__main__":
         raise PermissionError(f"No permission to write to {file_dir}")
 
     while success_count < success_needed:
-        actions = np.zeros((23,))
+        actions = np.zeros((7,))
         next_obs, rew, done, truncated, info = env.step(action=actions)
         
         # Only record transition if there was an intervention
         if "intervene_action" in info:
+            #print(f'intervene_action: {info["intervene_action"]}')
             actions = info["intervene_action"]
             transition = copy.deepcopy(
                 dict(

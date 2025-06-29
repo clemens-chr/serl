@@ -42,3 +42,9 @@ register(
     entry_point="franka_env.envs.orca_cube_pick_env:OrcaCubePick",
     max_episode_steps=100,
 )
+
+register(
+    id="OrcaCubePickBinary-Vision-v0",
+    entry_point="franka_env.envs.orca_cube_pick_env:OrcaCubePickBinary",
+    max_episode_steps=100,
+)

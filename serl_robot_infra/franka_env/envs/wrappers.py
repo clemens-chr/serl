@@ -7,7 +7,7 @@ import copy
 from franka_env.spacemouse.spacemouse_expert import SpaceMouseExpert
 from franka_env.spacemouse.avp_expert import AVPExpert
 from franka_env.utils.rotations import quat_2_euler
-from serl_robot_infra.franka_env.envs.rewards.cube_reward import is_left_cube, is_right_cube
+from franka_env.envs.rewards.cube_reward import is_left_cube, is_right_cube
 
 
 sigmoid = lambda x: 1 / (1 + np.exp(-x))
@@ -277,8 +277,10 @@ class AVPIntervention(gym.ActionWrapper):
         self.last_avp_pose = None
         self.last_hand_pos = None
         
+        
         if not debug:
             self.expert = AVPExpert(avp_ip=avp_ip, model_path=model_path, gripper_only=gripper_only)
+            print(f'AVPExpert initialized')
         self.left, self.right = False, False
 
     def action(self, action: np.ndarray) -> np.ndarray:
@@ -302,6 +304,7 @@ class AVPIntervention(gym.ActionWrapper):
         
         expert_a, expert_hand_action = self.expert.get_action()
         
+        
         if self.first_intervention:
             self.reference_franka_pose = self.env.currpose_euler.copy()
             self.reference_avp_pose = expert_a.copy()
@@ -312,41 +315,36 @@ class AVPIntervention(gym.ActionWrapper):
         # Compute the delta position between the current franka pose and the expert action
         delta_pos = expert_a - (self.env.currpose_euler + self.franka_offset)
         
-        print(f'AVP expert_hand_action: {expert_hand_action}')
-        print(f'AVPcurr_gripper_pos: {self.env.curr_gripper_pos}')
         
-        delta_pos[0] *= 30  # x
-        delta_pos[1] *= 30  # y
-        delta_pos[2] *= 30  # 
+        delta_pos[0] *= 40  # x
+        delta_pos[1] *= 40  # y
+        delta_pos[2] *= 40  # 
         
-    
+        delta_pos[3] *= 50
+        delta_pos[4] *= 50
+        delta_pos[5] *= 50
+        
+        
+        delta_pos = np.clip(delta_pos, -1, 1)
+        
         if self.gripper_only:
-            ratio = 0.08/0.05
-            retargeted_hand_action = expert_hand_action*ratio
             
-            # delta is negative if we want to close
-            delta_hand_pos = retargeted_hand_action - self.env.curr_gripper_pos
-            
-            
-            mode = "continuous"
+            mode = "binary"
             if mode == "binary":
-                if expert_hand_action < 0.02:
+                if expert_hand_action > 0:
                     gripper_action = np.random.uniform(0.9, 1.0, size=(1,))
                 else:
                     gripper_action = np.random.uniform(-1.0, -0.9, size=(1,))
             elif mode == "continuous":
-                gripper_action = delta_hand_pos/0.08
-                normalized_retargeted_hand_action = retargeted_hand_action/0.04 - 1
-
-                # gripper_action = 10 * delta_hand_pos
-                gripper_action = np.clip(normalized_retargeted_hand_action, -1.0, 1.0)
-            gripper_action = np.array([gripper_action])
+                gripper_action = -(expert_hand_action/0.025 - 1)
+    
+                gripper_action = np.clip(gripper_action, -1.0, 1.0)
+                gripper_action = np.array([gripper_action])
             
-            print(f'AVPgripper_action: {gripper_action}')
             expert_a = np.concatenate((delta_pos, gripper_action), axis=0)
         else:
-            raise NotImplementedError("Only gripper only is supported for now")                   
-            
+            action_diff = (self.env.current_hand_angles.copy() - expert_hand_action)*0.2
+            expert_a = np.concatenate((delta_pos, action_diff), axis=0)
         
         return expert_a, True
         
