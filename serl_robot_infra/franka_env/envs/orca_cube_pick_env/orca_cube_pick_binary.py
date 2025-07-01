@@ -6,6 +6,7 @@ import cv2
 import queue
 import gym
 import threading
+import multiprocessing as mp
 from scipy.spatial.transform import Rotation
 from orca_core import OrcaHand, MockOrcaHand
 
@@ -54,7 +55,7 @@ class OrcaCubePickBinary(FrankaEnv):
         if not ok:
             raise Exception(f'Failed to connect to hand: {msg}')
         
-        self.hand.set_joint_pos(self.hand_open_pose, num_steps=25, step_size=0.001)    
+        self.hand.set_joint_pos(self.hand_open_pose, num_steps=25, step_time=0.001)    
         self.current_hand_pos = -1 # (open)
         
         # Hand control thread variables
@@ -64,8 +65,18 @@ class OrcaCubePickBinary(FrankaEnv):
         self.hand_control_thread = threading.Thread(target=self._hand_control_loop, daemon=True)
         self.hand_control_thread.start()
     
+        # Hz monitoring with shared memory
+        self.hz_monitor_running = True
+        self.env_hz_data = mp.Value('d', 0.0)  # Shared double for env Hz
+        self.hand_hz_data = mp.Value('d', 0.0)  # Shared double for hand Hz
+        self.hz_monitor_thread = threading.Thread(target=self._hz_monitor_loop, daemon=True)
+        self.hz_monitor_thread.start()
+    
         self.max_episode_length = 200
 
+        # Environment Hz monitoring
+        self.last_step_time = time.time()
+        self.step_count = 0
         
         """
         the inner safety box is used to prevent the gripper from hitting the two walls of the bins in the center.
@@ -82,7 +93,6 @@ class OrcaCubePickBinary(FrankaEnv):
         print(f'hand_open_pose: {self.hand_open_pose}')
         print(f'hand_close_pose: {self.hand_close_pose}')
         
-        
 
     def _hand_control_loop(self):
         """Background hand control thread running at variable hertz"""
@@ -92,7 +102,7 @@ class OrcaCubePickBinary(FrankaEnv):
         print(f'hand_control_hertz: {self.hand_control_hertz}')
         print(f'hz: {self.hz}')
         print(f'num_steps: {num_steps}')
-        num_steps = 1
+        num_steps = self.hand_control_hertz / self.hz
         
         while self.hand_control_running:
             try:
@@ -108,15 +118,12 @@ class OrcaCubePickBinary(FrankaEnv):
                                 
                 if action_received:
                     # Calculate the target hand angles
-                    
-                    
                     curr_pos = self.current_hand_pos
                     
                     next_pos = curr_pos + hand_action * self.action_scale[2]
                     
                     next_pos = np.clip(next_pos, -1, 1)
                                         
-                
                     normalized_next_pos = (next_pos + 1) / 2
                     
                     target_dict = {}
@@ -125,8 +132,7 @@ class OrcaCubePickBinary(FrankaEnv):
                     
                     target_dict = self.clip_hand_angles(target_dict)
 
-                    # Send to hand
-                    self.hand.set_joint_pos(target_dict)
+                    self.hand.set_joint_pos(target_dict, num_steps=4, step_time=0.000)
                     
                     self.current_hand_pos = next_pos
                         
@@ -142,57 +148,33 @@ class OrcaCubePickBinary(FrankaEnv):
             # Print actual frequency for debugging
             current_time = time.time()
             actual_hertz = 1.0 / (current_time - last_time)
-            queue_size = self.hand_action_queue.qsize()
             last_time = current_time
+            
+            # Update shared memory with hand Hz data
+            self.hand_hz_data.value = actual_hertz
 
-    def intersect_line_bbox(self, p1, p2, bbox_min, bbox_max):
-        # Define the parameterized line segment
-        # P(t) = p1 + t(p2 - p1)
-        tmin = 0
-        tmax = 1
+    def _hz_monitor_loop(self):
+        """Background Hz monitoring thread that sends data to endpoints"""
+        while self.hz_monitor_running:
+            try:
+                # Send environment Hz data
+                env_hz = self.env_hz_data.value
+                if env_hz > 0:
+                    requests.post(self.url + "env_hz", json={"env_hz": env_hz})
+                
+                # Send hand Hz data  
+                hand_hz = self.hand_hz_data.value
+                if hand_hz > 0:
+                    requests.post(self.url + "hand_hz", json={"hand_hz": hand_hz})
+                    
+            except Exception as e:
+                pass  # Silently fail if endpoints are not available
+            
+            time.sleep(0.1)  # Send updates every 100ms
 
-        for i in range(3):
-            if p1[i] < bbox_min[i] and p2[i] < bbox_min[i]:
-                return None
-            if p1[i] > bbox_max[i] and p2[i] > bbox_max[i]:
-                return None
-
-            # For each axis (x, y, z), compute t values at the intersection points
-            if abs(p2[i] - p1[i]) > 1e-10:  # To prevent division by zero
-                t1 = (bbox_min[i] - p1[i]) / (p2[i] - p1[i])
-                t2 = (bbox_max[i] - p1[i]) / (p2[i] - p1[i])
-
-                # Ensure t1 is smaller than t2
-                if t1 > t2:
-                    t1, t2 = t2, t1
-
-                tmin = max(tmin, t1)
-                tmax = min(tmax, t2)
-
-                if tmin > tmax:
-                    return None
-
-        # Compute the intersection point using the t value
-        intersection = p1 + tmin * (p2 - p1)
-
-        return intersection
 
     def clip_safety_box(self, pose):
         pose = super().clip_safety_box(pose)
-        
-        
-        
-        
-        # Clip xyz to inner box
-        # if self.inner_safety_box.contains(pose[:3]):
-        #     # print(f'Command: {pose[:3]}')
-        #     pose[:3] = self.intersect_line_bbox(
-        #         self.currpos[:3],
-        #         pose[:3],
-        #         self.inner_safety_box.low,
-        #         self.inner_safety_box.high,
-        #     )
-        #     #print(f'Clipped: {pose[:3]}')
         return pose
 
 
@@ -215,22 +197,15 @@ class OrcaCubePickBinary(FrankaEnv):
         for joint_id, angle in angles.items():
             angles[joint_id] = np.clip(angle, self.hand_open_pose[joint_id], self.hand_close_pose[joint_id])
         return angles
-        
-    def step(self, action: np.ndarray) -> tuple:
-        """standard gym step function."""
+
+    def step(self, action: np.ndarray) -> tuple:   
         start_time = time.time()
         
-        # Section 1: Action processing
-        t1 = time.time()
         action = np.clip(action, self.action_space.low, self.action_space.high)
         xyz_delta = action[:3]
         
-        hand_action = action[6]  
-        #print(f'hand_action: {hand_action}')
-        t1_duration = time.time() - t1
-        
-        # Section 2: Position calculation
-        t2 = time.time()
+        hand_action = action[6]     
+         
         self.nextpos = self.currpos.copy()
         self.nextpos[:3] = self.nextpos[:3] + xyz_delta * self.action_scale[0]
         
@@ -241,53 +216,31 @@ class OrcaCubePickBinary(FrankaEnv):
         
         self._send_pos_command(self.clip_safety_box(self.nextpos))
 
-        
-        t2_duration = time.time() - t2
-        
-        # Section 4: Send hand action to background thread (NON-BLOCKING)
-        t4 = time.time()
         try:
             self.hand_action_queue.put_nowait(hand_action)
         except queue.Full:
-            # Queue is full, skip this action
             pass
 
-        # Section 5: Robot state update
-        t5 = time.time()
         self._update_currpos()
 
-        # Section 6: Observation and reward computation
-        t6 = time.time()
         ob = self._get_obs()
         reward = self.compute_reward(ob)
-       # print(f'reward: {reward}')
-        t6_duration = time.time() - t6
-
-        # Section 7: Loop timing and sleep
-        t7 = time.time()
         self.curr_path_length += 1
-        total_duration = time.time() - start_time
-        target_duration = 1.0 / self.hz  # Should be 0.1 seconds for 10 Hz
-        sleep_time = max(0, target_duration - total_duration)
         
-        # Print timing breakdown
-        # print(f"\n=== TIMING BREAKDOWN (Target: {target_duration:.3f}s) ===")
-        # print(f"1. Action processing:     {t1_duration*1000:.1f}ms")
-        # print(f"2. Position calculation:  {t2_duration*1000:.1f}ms")
-        # print(f"3. Safety clipping:       {t3_duration*1000:.1f}ms")
-        # print(f"4. Hand action queue:     {t4_duration*1000:.1f}ms")
-        # print(f"5. Robot state update:    {t5_duration*1000:.1f}ms")
-        # print(f"6. Observation/reward:    {t6_duration*1000:.1f}ms")
-        # print(f"7. Loop overhead:         {(t7-t6)*1000:.1f}ms")
-        # print(f"Total execution time:     {total_duration*1000:.1f}ms")
-        # print(f"Sleep time:               {sleep_time*1000:.1f}ms")
-        # print(f"Actual loop rate:         {1.0/total_duration:.1f} Hz")
-        # print(f"Target loop rate:         {self.hz:.1f} Hz")
-        # print("=" * 50)
-        
-        time.sleep(sleep_time)
-
         done = self.curr_path_length >= self.max_episode_length or reward == 1
+        
+        dt = time.time() - start_time
+        time.sleep(max(0, (1.0 / self.hz) - dt))
+        
+        # Calculate and send environment Hz
+        current_time = time.time()
+        self.step_count += 1
+        if self.step_count > 1:  # Skip first step for accurate Hz calculation
+            actual_hz = 1.0 / (current_time - self.last_step_time)
+            # Update shared memory with environment Hz data
+            self.env_hz_data.value = actual_hz
+        self.last_step_time = current_time
+        
         return ob, reward, done, False, {}
         
     def go_to_rest(self, joint_reset=False):
@@ -297,13 +250,13 @@ class OrcaCubePickBinary(FrankaEnv):
         """
         self._update_currpos()
         self._send_pos_command(self.currpos)
-        time.sleep(0.5)
+        time.sleep(0.2)
         self._update_currpos()
 
         reset_pose = copy.deepcopy(self.currpos)
-        reset_pose[2] += 0.05
+        reset_pose[2] += 0.03
         self.interpolate_move(reset_pose, timeout=1)
-        self.hand.set_joint_pos(self.hand_open_pose, num_steps=25, step_size=0.001)
+        self.hand.set_joint_pos(self.hand_open_pose, num_steps=25, step_time=0.001)
       
         # execute the go_to_rest method from the parent class
         super().go_to_rest(joint_reset)
@@ -340,6 +293,9 @@ class OrcaCubePickBinary(FrankaEnv):
     def close(self):
         """Clean up resources"""
         self.hand_control_running = False
+        self.hz_monitor_running = False
         if hasattr(self, 'hand_control_thread'):
             self.hand_control_thread.join(timeout=1.0)
+        if hasattr(self, 'hz_monitor_thread'):
+            self.hz_monitor_thread.join(timeout=1.0)
         super().close()

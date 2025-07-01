@@ -207,6 +207,7 @@ class FrankaEnv(gym.Env):
     def step(self, action: np.ndarray) -> tuple:
         """standard gym step function."""
         start_time = time.time()
+        
         action = np.clip(action, self.action_space.low, self.action_space.high)
         xyz_delta = action[:3]
         gripper_action = action[6]
@@ -347,14 +348,14 @@ class FrankaEnv(gym.Env):
         """
         # Change to precision mode for reset
         requests.post(self.url + "update_param", json=self.config.PRECISION_PARAM)
-        time.sleep(0.5)
+        time.sleep(0.2)
         
 
         # Perform joint reset if needed
         #print(f'performing joint reset')
         if joint_reset:
             requests.post(self.url + "jointreset")
-            time.sleep(0.5)
+            time.sleep(0.2)
                     
 
         # Perform Carteasian reset

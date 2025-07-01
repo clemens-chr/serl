@@ -10,7 +10,7 @@ from franka_env.envs.wrappers import (
     AVPIntervention,
     Quat2EulerWrapper,
 )
-
+import time
 from serl_launcher.wrappers.serl_obs_wrappers import SERLObsWrapper
 from serl_launcher.wrappers.chunking import ChunkingWrapper
 
@@ -30,17 +30,60 @@ if __name__ == "__main__":
 
     print(f"Running {num_episodes} episodes with random actions...")
 
+
     for episode in range(num_episodes):
         print(f"\nEpisode {episode + 1}/{num_episodes}")
         obs, _ = env.reset()
         done = False
         step_count = 0
+        start_time = time.time()
+
         
-        while not done:
+        # Frequency monitoring
+        last_step_time = time.time()
+        
+        action_x = 0.5
+        action_y = 0.5
+        action_z = 0.5
+        
+        while (time.time() - start_time) < 2:
             # Sample random action from action space
             actions = env.action_space.sample()
             
+            if episode % 2 == 0:
+                actions[-1] = 1
+            else:
+                actions[-1] = -1
+                
+            # if episode == 0:
+            #     print("moving in positive x direction")
+            #     actions[0] = action_x
+            # elif episode == 1:
+            #     print("moving in negative x direction")
+            #     actions[0] = -action_x
+            # elif episode == 2:
+            #     print("moving in positive y direction")
+            #     actions[1] = action_y
+            # elif episode == 3:
+            #     print("moving in negative y direction")
+            #     actions[1] = -action_y
+            # elif episode == 4:
+            #     print("moving in positive z direction") 
+            #     actions[2] = action_z
+            # elif episode == 5:
+            #     print("moving in negative z direction")
+            #     actions[2] = -action_z
+            # else:
+            #     actions = env.action_space.sample()
+
             next_obs, rew, done, truncated, info = env.step(action=actions)
+            
+            # Calculate and print frequency
+            current_time = time.time()
+            step_freq = 1.0 / (current_time - last_step_time)
+            print(f'Step freq: {step_freq:.1f} Hz')
+            last_step_time = current_time
+            
             
             step_count += 1
             

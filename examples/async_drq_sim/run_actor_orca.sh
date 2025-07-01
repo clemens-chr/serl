@@ -10,3 +10,4 @@ python async_drq_sim.py "$@" \
     --batch_size 256 \
     --random_steps 1000 \
     --encoder_type resnet-pretrained \
+    --demo_path /home/ccc/orca_ws/src/serl/examples/orca_pick_cube_drq/orca_cube_pick_21_demos_2025-06-29_14-24-02.pkl \

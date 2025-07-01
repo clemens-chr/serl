@@ -315,15 +315,13 @@ class AVPIntervention(gym.ActionWrapper):
         # Compute the delta position between the current franka pose and the expert action
         delta_pos = expert_a - (self.env.currpose_euler + self.franka_offset)
         
-        
-        delta_pos[0] *= 40  # x
-        delta_pos[1] *= 40  # y
-        delta_pos[2] *= 40  # 
+        delta_pos[0] *= 40  
+        delta_pos[1] *= 40  
+        delta_pos[2] *= 40  
         
         delta_pos[3] *= 50
         delta_pos[4] *= 50
         delta_pos[5] *= 50
-        
         
         delta_pos = np.clip(delta_pos, -1, 1)
         

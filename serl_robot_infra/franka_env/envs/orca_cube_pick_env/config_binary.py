@@ -21,7 +21,7 @@ class OrcaCubePickBinaryEnvConfig(DefaultEnvConfig):
         ]
     )
     
-    MIN_Z_POS = 0.226
+    MIN_Z_POS = 0.215
     MAX_Z_POS = 0.3
     
     MIN_X_POS = 0.43
