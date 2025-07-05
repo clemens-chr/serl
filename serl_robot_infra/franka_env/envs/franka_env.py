@@ -168,7 +168,8 @@ class FrankaEnv(gym.Env):
             return
 
         self.cap = None
-        self.init_cameras(config.REALSENSE_CAMERAS)
+        print(f'config.PORTS: {config.PORTS}')
+        self.init_cameras(config.REALSENSE_CAMERAS, config.PORTS)
         self.img_queue = queue.Queue()
         self.displayer = ImageDisplayer(self.img_queue)
         self.displayer.start()
@@ -233,6 +234,7 @@ class FrankaEnv(gym.Env):
         time.sleep(max(0, (1.0 / self.hz) - dt))
 
         self._update_currpos()
+        self.sgm_img = None
         ob = self._get_obs()
         reward = self.compute_reward(ob)
         done = self.curr_path_length >= self.max_episode_length or reward == 1
@@ -304,6 +306,7 @@ class FrankaEnv(gym.Env):
                     resized_sgm = cv2.resize(cropped_sgm, self.observation_space["images"][key].shape[:2][::-1])
                     display_images[key + "_sgm"] = resized_sgm
                     display_images[key + "_sgm_full"] = cropped_sgm
+                    self.sgm_img = resized_sgm
                                     
             except queue.Empty:
                 input(
@@ -323,6 +326,7 @@ class FrankaEnv(gym.Env):
     def get_sgm(self) -> Dict[str, np.ndarray]:
         """Get segmentation masks from the realsense cameras."""
         sgm = self.cap["front"].read_segmentation()
+    
         if sgm is not None:
             cv2.imwrite(f'./sgm.png', sgm)
             #print(f'saved sgm to ./sgm.png')
@@ -413,7 +417,7 @@ class FrankaEnv(gym.Env):
         except Exception as e:
             print(f"Failed to save video: {e}")
 
-    def init_cameras(self, name_serial_dict=None):
+    def init_cameras(self, name_serial_dict=None, ports=None):
         """Init both wrist cameras."""
         if self.cap is not None:  # close cameras if they are already open
             self.close_cameras()
@@ -424,12 +428,19 @@ class FrankaEnv(gym.Env):
             if cam_name == "front":
                 server_url = "ws://localhost:8765"
                 
+            if ports is not None:
+                mode = 'stream'
+            else:
+                mode = 'hardware'
+                
             cap = VideoCapture(
-                RSCapture(name=cam_name, serial_number=cam_serial, depth=False, dummy_mode=False),
+                RSCapture(name=cam_name, serial_number=cam_serial, mode=mode, depth=False, dummy_mode=False),
                 name=cam_name,
                 server_url_segment=server_url
             )
             self.cap[cam_name] = cap
+            
+            time.sleep(1)
 
     def close_cameras(self):
         """Close both wrist cameras."""

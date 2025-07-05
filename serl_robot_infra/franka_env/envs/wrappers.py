@@ -7,7 +7,7 @@ import copy
 from franka_env.spacemouse.spacemouse_expert import SpaceMouseExpert
 from franka_env.spacemouse.avp_expert import AVPExpert
 from franka_env.utils.rotations import quat_2_euler
-from franka_env.envs.rewards.cube_reward import is_left_cube, is_right_cube
+from franka_env.envs.rewards.cube_reward import CubeReward
 
 
 sigmoid = lambda x: 1 / (1 + np.exp(-x))
@@ -49,9 +49,9 @@ class FWBWFrontCameraBinaryRewardClassifierWrapper(gym.Wrapper):
     def compute_reward(self, obs):
         sgm = self.env.get_sgm()
         if self.task_id == 0:
-            return is_left_cube(sgm)
+            return self.rewarder.is_left_cube(sgm)
         elif self.task_id == 1:
-            return is_right_cube(sgm)
+            return self.rewarder.is_right_cube(sgm)
         else:
             raise ValueError(f"Invalid task id: {self.task_id}")
 
@@ -206,6 +206,14 @@ class GripperCloseEnv(gym.ActionWrapper):
             info["intervene_action"] = info["intervene_action"][:6]
         return obs, rew, done, truncated, info
 
+class SGMWrapper(gym.Wrapper):
+    def __init__(self, env):
+        super().__init__(env)
+        
+    def step(self, action):
+        obs, rew, done, truncated, info = self.env.step(action)
+        info["mask_image"] = self.env.sgm_img
+        return obs, rew, done, truncated, info
 
 class SpacemouseIntervention(gym.ActionWrapper):
     def __init__(self, env):
@@ -262,12 +270,12 @@ class SpacemouseIntervention(gym.ActionWrapper):
 
 
 class AVPIntervention(gym.ActionWrapper):
-    def __init__(self, env, avp_ip="10.93.181.127", model_path=None, gripper_only=False, debug=False):
+    def __init__(self, env, avp_ip="10.93.181.127", model_path=None, gripper_only=False, debug=False, record_raw_data=False):
         super().__init__(env)
 
         self.gripper_only = gripper_only
         self.debug = debug
-        
+        self.record_raw_data = record_raw_data
         # This is important to home the data from avp
         self.first_intervention = True
         
@@ -276,7 +284,7 @@ class AVPIntervention(gym.ActionWrapper):
 
         self.last_avp_pose = None
         self.last_hand_pos = None
-        
+        self.raw_data = None
         
         if not debug:
             self.expert = AVPExpert(avp_ip=avp_ip, model_path=model_path, gripper_only=gripper_only)
@@ -303,6 +311,10 @@ class AVPIntervention(gym.ActionWrapper):
             return action, False
         
         expert_a, expert_hand_action = self.expert.get_action()
+        
+        if self.record_raw_data:
+            self.raw_data = self.expert.get_raw_avp_data()
+
         
         
         if self.first_intervention:
@@ -350,9 +362,14 @@ class AVPIntervention(gym.ActionWrapper):
     def step(self, action):
         
         new_action, replaced = self.action(action)
-        obs, rew, done, truncated, info = self.env.step(new_action)
+        if self.record_raw_data:
+            obs, rew, done, truncated, info = self.env.step(action)
+        else:
+            obs, rew, done, truncated, info = self.env.step(new_action)
         if replaced:
             info["intervene_action"] = new_action
+            if self.record_raw_data:
+                info["raw_data"] = self.raw_data
         info["left"] = self.left
         info["right"] = self.right
         return obs, rew, done, truncated, info

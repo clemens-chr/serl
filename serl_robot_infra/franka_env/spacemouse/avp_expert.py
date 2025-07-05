@@ -134,6 +134,7 @@ class AVPExpert:
             last_loop_time = current_time
             
             data = stream.latest
+            self.latest_data["raw_data"] = data
 
             
             pinch_right = data["right_pinch_distance"] # float
@@ -205,6 +206,9 @@ class AVPExpert:
         # print(f'action: {action}')
         hand_action = self.latest_data["hand_action"]
         return np.array(action), hand_action
+    
+    def get_raw_avp_data(self) -> dict:
+        return self.latest_data["raw_data"]
     
     def is_intervening(self) -> bool:
         return self.latest_data["is_intervening"]

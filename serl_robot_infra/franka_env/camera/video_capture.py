@@ -129,8 +129,17 @@ class VideoCapture:
 # --- Example usage ---
 
 if __name__ == "__main__":
-    cap = cv2.VideoCapture(0)  # or RealSense pipeline output
-    video = VideoCapture(cap, server_url="ws://localhost:8765")
+    from rs_capture import RSCapture
+    
+    cap = RSCapture(
+        name="front",
+        serial_number="239222303782",  # Must match serialized message from stream
+        mode="stream",
+        stream_host="localhost",
+        stream_port=5555
+    )
+
+    video = VideoCapture(cap, name="front", server_url_segment="ws://localhost:8765")
 
     try:
         while True:
