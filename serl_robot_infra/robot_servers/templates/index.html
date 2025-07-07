@@ -14,6 +14,18 @@
             <span class="last-update" id="last-update">Last update: Never</span>
         </div>
 
+        <!-- Hz Values Display -->
+        <div class="hz-display">
+            <div class="hz-value">
+                <span class="hz-label">Environment Hz:</span>
+                <span class="hz-number" id="env-hz-value">0.0</span>
+            </div>
+            <div class="hz-value">
+                <span class="hz-label">Hand Hz:</span>
+                <span class="hz-number" id="hand-hz-value">0.0</span>
+            </div>
+        </div>
+
         <!-- Response/Error Display Panel -->
         <div class="panel response-panel">
             <h3>Server Response</h3>
@@ -183,6 +195,14 @@
                         <button class="btn-primary" onclick="sendCommand('/open_gripper')">POST /open_gripper</button>
                         <button class="btn-primary" onclick="sendCommand('/close_gripper')">POST /close_gripper</button>
                         <button class="btn-warning" onclick="sendCommand('/reset_gripper')">POST /reset_gripper</button>
+                    </div>
+                </div>
+                
+                <div class="endpoint-category">
+                    <h4>Hz Monitoring (POST)</h4>
+                    <div class="button-group">
+                        <button class="btn-info" onclick="sendHzCommand('/env_hz')">POST /env_hz</button>
+                        <button class="btn-info" onclick="sendHzCommand('/hand_hz')">POST /hand_hz</button>
                     </div>
                 </div>
             </div>

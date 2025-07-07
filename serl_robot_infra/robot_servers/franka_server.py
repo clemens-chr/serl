@@ -56,6 +56,10 @@ class FrankaServer:
         self.jacobian = np.zeros((6, 7))  # jacobian matrix
         self.impedance_running = False
         self.last_update_time = time.time()
+        
+        # New variables for env_hz and hand_hz
+        self.env_hz = 0.0
+        self.hand_hz = 0.0
 
         self.eepub = rospy.Publisher(
             "/cartesian_impedance_controller/equilibrium_pose",
@@ -92,7 +96,9 @@ class FrankaServer:
             "last_update_time": self.last_update_time,
             "robot_ip": self.robot_ip,
             "gripper_type": self.gripper_type,
-            "reset_joint_target": self.reset_joint_target
+            "reset_joint_target": self.reset_joint_target,
+            "env_hz": self.env_hz,
+            "hand_hz": self.hand_hz
         }
 
     def start_impedance(self):
@@ -532,6 +538,38 @@ def main(_):
             print(f"Error in move_gripper route: {str(e)}")
             return str(e), 500
 
+    # Route for receiving env_hz value
+    @webapp.route("/env_hz", methods=["POST"])
+    def receive_env_hz():
+        try:
+            data = request.json
+            if data and "env_hz" in data:
+                robot_server.env_hz = float(data["env_hz"])
+                print(f"Received env_hz: {robot_server.env_hz}")
+                return f"Updated env_hz to {robot_server.env_hz}"
+            else:
+                return "Missing env_hz parameter", 400
+        except Exception as e:
+            print(f"Error in env_hz route: {str(e)}")
+            return str(e), 500
+
+    # Route for receiving hand_hz value
+    @webapp.route("/hand_hz", methods=["POST"])
+    def receive_hand_hz():
+        try:
+            data = request.json
+            if data and "hand_hz" in data:
+                robot_server.hand_hz = float(data["hand_hz"])
+                print(f"Received hand_hz: {robot_server.hand_hz}")
+                return f"Updated hand_hz to {robot_server.hand_hz}"
+            else:
+                return "Missing hand_hz parameter", 400
+        except Exception as e:
+            print(f"Error in hand_hz route: {str(e)}")
+            return str(e), 500
+        
+    
+
     # Route for Clearing Errors
     @webapp.route("/clearerr", methods=["POST"])
     def clear():
@@ -560,6 +598,7 @@ def main(_):
         try:
             return jsonify({
                 "pose": np.array(robot_server.pos).tolist(),
+                "pose_euler": np.concatenate([robot_server.pos[:3], R.from_quat(robot_server.pos[3:]).as_euler("xyz")]).tolist(),
                 "vel": np.array(robot_server.vel).tolist(),
                 "force": np.array(robot_server.force).tolist(),
                 "torque": np.array(robot_server.torque).tolist(),

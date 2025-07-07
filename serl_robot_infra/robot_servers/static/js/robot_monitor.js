@@ -105,6 +105,14 @@ function updateDisplay(data) {
         currentPose = [...data.pos];
     }
 
+    // Update Hz values
+    if (data.env_hz !== undefined) {
+        document.getElementById('env-hz-value').textContent = data.env_hz.toFixed(2);
+    }
+    if (data.hand_hz !== undefined) {
+        document.getElementById('hand-hz-value').textContent = data.hand_hz.toFixed(2);
+    }
+
     // Position & Orientation
     const positionHtml = `
         ${createDataRow('Position X', data.pos[0])}
@@ -141,6 +149,8 @@ function updateDisplay(data) {
         ${createDataRow('Gripper Position', data.gripper_pos)}
         ${createDataRow('Impedance Running', data.impedance_running)}
         ${createDataRow('Reset Joint Target', data.reset_joint_target)}
+        ${createDataRow('Environment Hz', data.env_hz)}
+        ${createDataRow('Hand Hz', data.hand_hz)}
     `;
     document.getElementById('system-data').innerHTML = systemHtml;
 
@@ -203,6 +213,40 @@ async function sendDataCommand(endpoint) {
         }
     } catch (error) {
         console.error(`Error fetching from ${endpoint}:`, error);
+        displayResponse(`${endpoint} error: ${error.message}`, 'error');
+    }
+}
+
+async function sendHzCommand(endpoint) {
+    try {
+        const hzValue = prompt(`Enter ${endpoint === '/env_hz' ? 'environment' : 'hand'} Hz value:`);
+        if (hzValue === null) return; // User cancelled
+        
+        const value = parseFloat(hzValue);
+        if (isNaN(value)) {
+            displayResponse('Please enter a valid number', 'error');
+            return;
+        }
+        
+        displayResponse(`Sending ${endpoint === '/env_hz' ? 'environment' : 'hand'} Hz: ${value}...`, 'info');
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                [endpoint === '/env_hz' ? 'env_hz' : 'hand_hz']: value 
+            })
+        });
+        const result = await response.text();
+        
+        if (response.ok) {
+            displayResponse(`${endpoint}: ${result}`, 'success');
+            // Immediately fetch new data to update the display
+            setTimeout(fetchData, 100);
+        } else {
+            displayResponse(`${endpoint} error: ${result}`, 'error');
+        }
+    } catch (error) {
+        console.error(`Error sending Hz command to ${endpoint}:`, error);
         displayResponse(`${endpoint} error: ${error.message}`, 'error');
     }
 }

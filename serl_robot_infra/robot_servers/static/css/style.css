@@ -18,6 +18,43 @@ body {
     margin-bottom: 20px;
 }
 
+/* Hz Display Styles */
+.hz-display {
+    background-color: #34495e;
+    color: white;
+    padding: 15px 20px;
+    border-radius: 5px;
+    margin-bottom: 20px;
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+.hz-value {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.hz-label {
+    font-weight: bold;
+    font-size: 16px;
+    color: #ecf0f1;
+}
+
+.hz-number {
+    font-size: 24px;
+    font-weight: bold;
+    color: #3498db;
+    font-family: monospace;
+    background-color: rgba(255, 255, 255, 0.1);
+    padding: 5px 10px;
+    border-radius: 3px;
+    min-width: 80px;
+    text-align: center;
+}
+
 .status {
     display: inline-block;
     padding: 5px 10px;
